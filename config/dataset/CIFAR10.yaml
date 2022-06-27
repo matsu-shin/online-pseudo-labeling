@@ -1,0 +1,9 @@
+name: CIFAR10
+dir: /data/
+img_size: 32
+img_ch: 3
+
+num_instances: 100
+num_bags: 100
+negative_label: 0
+positive_label: 1

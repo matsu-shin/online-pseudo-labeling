@@ -1,0 +1,10 @@
+name: MNIST
+dir: /data/MNIST/raw/
+img_size: 28
+is_to_rgb: True
+img_ch: 3
+
+num_instances: 100
+num_bags: 100
+negative_label: 1
+positive_label: 7
