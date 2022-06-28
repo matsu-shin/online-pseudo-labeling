@@ -6,5 +6,4 @@ img_ch: 3
 
 num_instances: 100
 num_bags: 100
-negative_label: 1
-positive_label: 7
+num_classes: 3
