@@ -36,7 +36,6 @@ class FPL:
             d_n = []
             for c in range(self.num_classes):
                 d_n.extend([c]*int(self.k[n][c]))
-            d_n.extend([self.num_classes-1]*n_c)
             random.shuffle(d_n)
             self.d[n] = d_n
         # d.shape => (num_bags, num_instances)

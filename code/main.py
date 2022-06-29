@@ -134,8 +134,9 @@ def main(cfg: DictConfig) -> None:
         f_name = 'fpl'
     else:
         f_name = 'not_op'
-    f_name += '_%s_%s_%s_%s_%s' % (
+    f_name += '_%s_%s_%s_%s_%s_%s' % (
         cfg.dataset.name,
+        cfg.dataset.num_classes,
         cfg.fpl.eta,
         cfg.fpl.loss_f,
         cfg.dataset.num_bags,
