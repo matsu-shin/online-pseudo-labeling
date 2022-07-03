@@ -1,8 +1,8 @@
-name: CIFAR10
+name: cifar10
 dir: /data/
 img_size: 32
 img_ch: 3
 
-num_instances: 100
+num_instances: 64
 num_bags: 100
-num_classes: 3
+num_classes: 10

@@ -1,4 +1,5 @@
 from cProfile import label
+from load_cifar10 import load_cifar10
 from load_mnist import load_minist
 import random
 import numpy as np
@@ -57,15 +58,30 @@ def create_bags(data, label, label_proportion, num_bags=1000, num_instances=100)
 
 
 if __name__ == '__main__':
-    train_data, train_label, test_data, test_label = load_minist(
-        dataset_dir='./data/MNIST/raw/',
-        is_to_rgb=True)
+    # train_data, train_label, test_data, test_label = load_minist(
+    #     dataset_dir='./data/MNIST/raw/',
+    #     is_to_rgb=True)
 
-    num_bags = 100
-    num_instances = 100
-    num_classes = 3
-    label_proportion = get_label_proportion(
-        num_bags=num_bags, num_instances=num_instances, num_classes=num_classes)
+    # num_bags = 100
+    # num_instances = 100
+    # num_classes = 3
+    # label_proportion = get_label_proportion(
+    #     num_bags=num_bags, num_instances=num_instances, num_classes=num_classes)
+
+    train_data, train_label, test_data, test_label = \
+        load_cifar10(dataset_dir='./data/')
+
+    bags_index = np.load('./obj/cifar10/uniform-SWOR-64.npy')
+    num_bags = bags_index.shape[0]
+    num_classes = 10
+    num_instances = 64
+
+    bags_data, bags_label = train_data[bags_index], train_label[bags_index]
+    label_proportion = np.zeros((num_bags, num_classes))
+    for n in range(num_bags):
+        bag_one_hot_label = np.identity(num_classes)[bags_label[n]]
+        label_proportion[n] = bag_one_hot_label.sum(axis=0)/num_instances
+
     for c in range(num_classes):
         plt.hist(label_proportion[:, c], alpha=0.5)
     plt.savefig('result/label_proportion.png')
@@ -79,6 +95,6 @@ if __name__ == '__main__':
     # show a bag
     for index in range(3):
         fig, ax = plt.subplots(10, 10)
-        for i in range(100):
+        for i in range(num_instances):
             ax[i//10][i % 10].imshow(bags_data[index][i])
         fig.savefig('./result/bags_%s.png' % index)

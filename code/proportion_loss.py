@@ -3,14 +3,15 @@ from omegaconf import DictConfig, OmegaConf
 import logging
 
 import numpy as np
+from sklearn.utils import shuffle
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torchvision.models import resnet18
 from tqdm import tqdm
 
-from FPL import FPL
+import torchvision.transforms as transforms
 from evaluate import evaluate
-from train import train
 from utils import Dataset
 from create_bags import create_bags, get_label_proportion
 from load_mnist import load_minist
@@ -19,12 +20,69 @@ from load_cifar10 import load_cifar10
 log = logging.getLogger(__name__)
 
 
+class Bag_Dataset(torch.utils.data.Dataset):
+    def __init__(self, bags, label_proportions):
+        self.bags = bags
+        self.label_proportions = label_proportions
+        self.transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+        self.len = self.bags.shape[0]
+        self.num_instances = self.bags.shape[1]
+        self.img_size = self.bags.shape[2]
+        self.img_ch = self.bags.shape[-1]
+
+    def __len__(self):
+        return self.len
+
+    def __getitem__(self, idx):
+        bag = torch.zeros((self.num_instances, self.img_ch,
+                          self.img_size, self.img_size))
+        for i in range(self.num_instances):
+            bag[i] = self.transform(self.bags[idx][i])
+        shuffle_index = np.arange(self.num_instances)
+        np.random.shuffle(shuffle_index)
+        bag = bag[shuffle_index]
+
+        label_proportion = self.label_proportions[idx]
+        label_proportion = torch.tensor(label_proportion).float()
+
+        return bag, label_proportion
+
+
+def train(model, optimizer, loader, device):
+    model.train()
+    loss_list, acc_list = [], []
+    print('training model...')
+    loss_function = nn.MSELoss()
+    for bag, lp in tqdm(loader):
+        bag, lp = bag[0].to(device), lp[0].to(device)
+        y = model(bag)
+        num_instances = bag.size(0)
+        estimated_lp = 1/num_instances * F.softmax(y, dim=1).sum(0)
+        # loss = - torch.sum(lp * torch.log(estimated_lp))
+        loss = F.l1_loss(lp, estimated_lp, reduction="none").mean()
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+
+        loss_list.append(loss.item())
+
+    loss = np.array(loss_list).mean()
+
+    return loss
+
+
 @ hydra.main(config_path='../config', config_name='config')
 def main(cfg: DictConfig) -> None:
 
     log.info(OmegaConf.to_yaml(cfg))
     cwd = hydra.utils.get_original_cwd()
     log.info('cwd:%s' % cwd)
+
+    num_bags = cfg.dataset.num_bags
+    num_instances = cfg.dataset.num_instances
+    num_classes = cfg.dataset.num_classes
 
     # load data
     if cfg.dataset.name == 'mnist':
@@ -39,9 +97,7 @@ def main(cfg: DictConfig) -> None:
             )
 
     if cfg.is_load_bag:
-        # bags_index = np.load(cwd+'/obj/%s/uniform-SWOR-%s.npy' %
-        #                      (cfg.dataset.name, cfg.dataset.num_instances))
-        bags_index = np.load(cwd+'/obj/%s/xx-%s.npy' %
+        bags_index = np.load(cwd+'/obj/%s/uniform-SWOR-%s.npy' %
                              (cfg.dataset.name, cfg.dataset.num_instances))
         cfg.dataset.num_classes = 10
         cfg.dataset.num_bags = bags_index.shape[0]
@@ -88,6 +144,11 @@ def main(cfg: DictConfig) -> None:
         test_dataset, batch_size=cfg.batch_size,
         shuffle=False,  num_workers=cfg.num_workers)
 
+    train_dataset = Bag_Dataset(bags_data, label_proportion)
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=1,
+        shuffle=True,  num_workers=cfg.num_workers)
+
     # define model
     model = resnet18(pretrained=cfg.is_pretrained)
     model.fc = nn.Linear(model.fc.in_features, num_classes)
@@ -97,42 +158,13 @@ def main(cfg: DictConfig) -> None:
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
-    fpl = FPL(label_proportion=label_proportion,
-              num_bags=num_bags, num_instances=num_instances,
-              sigma=cfg.fpl.sigma,
-              eta=cfg.fpl.eta,
-              loss_f=cfg.fpl.loss_f,
-              is_online_prediction=cfg.fpl.is_online_prediction)
-
     test_loss_list, test_acc_list = [], []
     for epoch in range(cfg.num_epochs):
-        # update pseudo label
-        pseudo_label = fpl.d
-        # pseudo_label.shape => (num_bags, num_instances)
-
-        # trained DNN: obtain f_t with d_t
-        train_dataset = Dataset(train_data, pseudo_label.reshape(-1))
-        train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=cfg.batch_size,
-            shuffle=True,  num_workers=cfg.num_workers)
-
-        train_loss, train_acc = train(model=model,
-                                      criterion=criterion,
-                                      optimizer=optimizer,
-                                      loader=train_loader,
-                                      device=cfg.device)
-        # print(train_loss, train_acc)
-
-        # update the noise-risk vector theta_t
-        train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=cfg.batch_size,
-            shuffle=False,  num_workers=cfg.num_workers)
-        fpl.update_theta(model=model,
-                         loader=train_loader,
-                         device=cfg.device)
-
-        # select the next k-set d_(t+1)
-        fpl.update_d()
+        # TODO: need to implement mini batch
+        train(model=model,
+              optimizer=optimizer,
+              loader=train_loader,
+              device=cfg.device)
 
         test_loss, test_acc = evaluate(model=model,
                                        criterion=criterion,
@@ -146,15 +178,10 @@ def main(cfg: DictConfig) -> None:
         test_acc_list.append(test_acc)
 
     # save
-    if cfg.fpl.is_online_prediction:
-        f_name = 'fpl'
-    else:
-        f_name = 'not_op'
-    f_name += '_%s_%s_%s_%s_%s_%s' % (
+    f_name = 'proportion_loss'
+    f_name += '_%s_%s_%s_%s' % (
         cfg.dataset.name,
         cfg.dataset.num_classes,
-        cfg.fpl.eta,
-        cfg.fpl.loss_f,
         cfg.dataset.num_bags,
         cfg.dataset.num_instances)
     np.save('% s/result/loss_%s' % (cwd, f_name), np.array(test_loss_list))
