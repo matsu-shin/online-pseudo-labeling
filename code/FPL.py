@@ -1,6 +1,5 @@
 # Follow-the-Perturbed-Leader (FPL)
 import random
-from matplotlib.pyplot import axes
 import numpy as np
 from tqdm import tqdm
 import torch.nn.functional as F
@@ -45,14 +44,33 @@ class FPL:
         self.cumulative_loss = np.zeros(
             (self.num_bags, self.num_instances, self.num_classes))
 
-    def update_theta(self, model, loader, device):
+    def update_theta(self, model, criterion, loader, device):
         model.eval()
         confidence_list = []
-        for data, _ in loader:
-            data = data.to(device)
+
+        loss_list, acc_list = [], []
+        pseudo_loss_list, pseudo_acc_list = [], []
+        pred_list, feature_list = [], []
+
+        for data, label, pseudo_label in loader:
+            data, label = data.to(device), label.to(device)
+            pseudo_label = pseudo_label.to(device)
+
+            model.avgpool.register_forward_hook(store_feature)
             y = model(data)
-            confidence = F.softmax(y, dim=1).cpu().detach().numpy()
-            confidence_list.extend(confidence)
+            feature_list.extend(feature.squeeze().cpu().detach().numpy())
+            confidence = F.softmax(y, dim=1)
+            confidence_list.extend(confidence.cpu().detach().numpy())
+
+            loss_list.append(criterion(y, label).item())
+            pseudo_loss_list.append(criterion(y, pseudo_label).item())
+
+            acc_list.extend((y.argmax(1) == label).cpu().detach().numpy())
+            pseudo_acc_list.extend(
+                (y.argmax(1) == pseudo_label).cpu().detach().numpy())
+
+            pred_list.extend(y.argmax(1).cpu().detach().numpy())
+
         confidence = np.array(confidence_list)
         confidence = confidence.reshape(
             self.num_bags, self.num_instances, self.num_classes)
@@ -65,6 +83,14 @@ class FPL:
         else:
             print('Error: No loss function!')
 
+        loss = np.array(loss_list).mean()
+        pseudo_loss = np.array(pseudo_loss_list).mean()
+        acc = np.array(acc_list).mean()
+        pseudo_acc = np.array(pseudo_acc_list).mean()
+        pred = np.array(pred_list)
+
+        return loss, pseudo_loss, acc, pseudo_acc, pred, np.array(feature_list)
+
     def update_d(self):
         # TODO: 末廣先生に合っているか確認
 
@@ -76,8 +102,8 @@ class FPL:
             perturbation = \
                 np.random.normal(0, self.sigma, self.cumulative_loss.shape)
 
-            self.cumulative_loss += self.d_one_hot * self.theta
-            total_loss = self.cumulative_loss + self.eta*self.d_one_hot*perturbation
+            self.cumulative_loss += self.theta
+            total_loss = self.cumulative_loss + self.eta*perturbation
             # total_loss.shape => (num_bags, num_instances, num_classes)
         else:
             total_loss = self.theta
@@ -141,3 +167,8 @@ def song_loss(confidence, label):
 
 def simple_confidence_loss(confidence):
     return 1-confidence
+
+
+def store_feature(module, input, output):
+    global feature
+    feature = output
