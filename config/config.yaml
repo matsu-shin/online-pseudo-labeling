@@ -1,6 +1,9 @@
 defaults:
   - dataset: cifar10
 is_load_bag: True
+is_uni: True
+
+result_path: /result/
 
 lr: 0.0001
 batch_size: 512
@@ -8,9 +11,10 @@ num_workers: 2
 device: 'cuda'
 num_epochs: 30
 is_pretrained: True
+is_pretrained_by_proportion_loss: False
 
 fpl:
   is_online_prediction: True
   sigma: 1
   eta: 1
-  loss_f: song
+  loss_f: simple_confidence

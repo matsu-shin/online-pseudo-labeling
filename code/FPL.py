@@ -92,12 +92,6 @@ class FPL:
         return loss, pseudo_loss, acc, pseudo_acc, pred, np.array(feature_list)
 
     def update_d(self):
-        # TODO: 末廣先生に合っているか確認
-
-        # to one-hot
-        self.d_one_hot = np.identity(self.num_classes)[self.d]
-        # self.d.shape => (num_bags, num_instances, num_classes)
-
         if self.is_online_prediction:
             perturbation = \
                 np.random.normal(0, self.sigma, self.cumulative_loss.shape)
@@ -131,19 +125,6 @@ class FPL:
                    for i in range(self.num_instances*self.num_classes)]
             d_n = np.array(d_n).reshape(self.num_instances, self.num_classes)
             self.d[n] = d_n.argmax(1)
-
-
-# def song_loss_original(confidence, label):
-#     # confidence.shape => (num_bags*num_instances, num_classes)
-#     # label => (num_bags*num_instances)
-#     correct = np.ones(label.shape[0])
-#     pred = confidence.argmax(1)
-#     correct[pred != label] = -1
-#     probality = confidence.max(1)
-
-#     loss = ((1 - correct * probality) / 2)
-
-#     return loss
 
 
 def song_loss(confidence, label):
