@@ -7,11 +7,12 @@ import torch
 import torch.nn as nn
 from torchvision.models import resnet18
 from tqdm import tqdm
+from matplotlib import pyplot as plt
 
 from FPL import FPL
 from train import TrainDataset, train
 from evaluate import TestDataset, evaluate
-from utils import save_confusion_matrix
+from utils import make_folder, save_confusion_matrix
 from create_bags import create_bags, get_label_proportion
 from load_mnist import load_minist
 from load_cifar10 import load_cifar10
@@ -40,6 +41,17 @@ def main(cfg: DictConfig) -> None:
         cfg.fpl.loss_f,
         cfg.dataset.num_bags,
         cfg.dataset.num_instances)
+
+    # make folder
+    make_folder(cwd+result_path)
+    make_folder(cwd+result_path+'/model/')
+    make_folder(cwd+result_path+'/train_cm/')
+    make_folder(cwd+result_path+'/test_cm/')
+    make_folder(cwd+result_path+'/label_cm/')
+    make_folder(cwd+result_path+'/train_pseudo_cm/')
+    make_folder(cwd+result_path+'/train_feature/')
+    make_folder(cwd+result_path+'/test_feature/')
+    make_folder(cwd+result_path+'/theta/')
 
     # load data
     if cfg.dataset.name == 'mnist':
@@ -137,13 +149,13 @@ def main(cfg: DictConfig) -> None:
                                                            criterion=criterion,
                                                            loader=test_loader,
                                                            device=cfg.device)
-        np.save('%s/%s_test_feature_0' % (cwd, result_path), feature)
+        np.save('%s/%s/test_feature/0' % (cwd, result_path), feature)
         # print result
         print('[Epoch: 0/%d] test_loss: %.4f, test_acc: %.4f' %
               (cfg.num_epochs, test_loss, test_acc))
         save_confusion_matrix(
             test_label, test_pred,
-            path='%s/%s_test_cm_0.png' % (cwd, result_path),
+            path='%s/%s/test_cm/0.png' % (cwd, result_path),
             epoch=0)
 
         # update the noise-risk vector theta_t
@@ -156,8 +168,8 @@ def main(cfg: DictConfig) -> None:
                                                                                                criterion=criterion,
                                                                                                loader=train_loader,
                                                                                                device=cfg.device)
-        np.save('%s/%s_train_feature_0' % (cwd, result_path), feature)
-        np.save('%s/%s_theta_0' % (cwd, result_path), fpl.theta)
+        np.save('%s/%s/train_feature/0' % (cwd, result_path), feature)
+        np.save('%s/%s/theta/0' % (cwd, result_path), fpl.theta)
 
         print('[Epoch: 0/%d] train_loss: %.4f, train_acc: %.4f' %
               (cfg.num_epochs, train_loss, train_acc))
@@ -170,7 +182,7 @@ def main(cfg: DictConfig) -> None:
         print('pseudo_label_acc: %.4f' % pseudo_label_acc)
         save_confusion_matrix(
             train_label, fpl.d.reshape(-1),
-            path='%s/%s_pseudo_cm_0.png' % (cwd, result_path),
+            path='%s/%s/pseudo_cm/0.png' % (cwd, result_path),
             epoch=0)
 
     train_loss_list, train_acc_list = [], []
@@ -209,17 +221,17 @@ def main(cfg: DictConfig) -> None:
         train_pseudo_loss_list.append(pseudo_loss)
         train_acc_list.append(train_acc)
         train_pseudo_acc_list.append(pseudo_acc)
-        np.save('%s/%s_train_feature_%d' %
+        np.save('%s/%s/train_feature/%d' %
                 (cwd, result_path, (epoch+1)), feature)
-        np.save('%s/%s_theta_%d' %
+        np.save('%s/%s/theta/%d' %
                 (cwd, result_path, (epoch+1)), fpl.theta)
         save_confusion_matrix(
             train_label, train_pred,
-            path='%s/%s_train_cm_%d.png' % (cwd, result_path, epoch+1),
+            path='%s/%s/train_cm/%d.png' % (cwd, result_path, epoch+1),
             epoch=(epoch+1))
         save_confusion_matrix(
             fpl.d.reshape(-1), train_pred,
-            path='%s/%s_train_pseudo_cm_%d.png' % (cwd, result_path, epoch+1),
+            path='%s/%s/train_pseudo_cm/%d.png' % (cwd, result_path, epoch+1),
             epoch=(epoch+1))
 
         print('[Epoch: %d/%d] train_loss: %.4f, train_acc: %.4f' %
@@ -234,7 +246,7 @@ def main(cfg: DictConfig) -> None:
         print('pseudo_label_acc: %.4f' % pseudo_label_acc)
         save_confusion_matrix(
             train_label, fpl.d.reshape(-1),
-            path='%s/%s_pseudo_cm_%d.png' % (cwd, result_path, epoch+1),
+            path='%s/%s/label_cm/%d.png' % (cwd, result_path, epoch+1),
             epoch=(epoch+1))
 
         test_loss, test_acc, test_pred, feature = evaluate(model=model,
@@ -243,11 +255,11 @@ def main(cfg: DictConfig) -> None:
                                                            device=cfg.device)
         test_loss_list.append(test_loss)
         test_acc_list.append(test_acc)
-        np.save('%s/%s_test_feature_%d' %
+        np.save('%s/%s/test_feature/%d' %
                 (cwd, result_path, (epoch+1)), feature)
         save_confusion_matrix(
             test_label, test_pred,
-            path='%s/%s_test_cm_%d.png' % (cwd, result_path, epoch+1),
+            path='%s/%s/test_cm/%d.png' % (cwd, result_path, epoch+1),
             epoch=(epoch+1))
 
         # print result
@@ -255,21 +267,35 @@ def main(cfg: DictConfig) -> None:
               (epoch+1, cfg.num_epochs, test_loss, test_acc))
 
         # save
-        np.save('%s/%s_train_loss' %
+        np.save('%s/%s/train_loss' %
                 (cwd, result_path), np.array(train_loss_list))
-        np.save('%s/%s_train_pseudo_loss' %
+        np.save('%s/%s/train_pseudo_loss' %
                 (cwd, result_path), np.array(train_pseudo_loss_list))
-        np.save('%s/%s_train_acc' %
+        np.save('%s/%s/train_acc' %
                 (cwd, result_path), np.array(train_acc_list))
-        np.save('%s/%s_train_pseudo_acc' %
+        np.save('%s/%s/train_pseudo_acc' %
                 (cwd, result_path), np.array(train_pseudo_acc_list))
 
-        np.save('%s/%s_test_loss' %
+        np.save('%s/%s/test_loss' %
                 (cwd, result_path), np.array(test_loss_list))
-        np.save('%s/%s_test_acc' %
+        np.save('%s/%s/test_acc' %
                 (cwd, result_path), np.array(test_acc_list))
-        np.save('%s/%s_label_acc' %
+        np.save('%s/%s/label_acc' %
                 (cwd, result_path), np.array(pseudo_label_acc_list))
+
+        torch.save(model.state_dict(), '%s/%s/model/%s.pth' %
+                   (cwd, result_path, (epoch+1)))
+
+        plt.plot(train_pseudo_acc_list, label='train_pseudo_acc')
+        plt.plot(train_acc_list, label='train_acc')
+        plt.plot(test_acc_list, label='test_acc')
+        plt.plot(pseudo_label_acc_list, label='label_acc')
+        plt.legend()
+        plt.ylim(0, 1)
+        plt.xlabel('epoch')
+        plt.ylabel('acc')
+        plt.savefig('%s/%s/acc.png' % (cwd, result_path))
+        plt.close()
 
 
 if __name__ == '__main__':

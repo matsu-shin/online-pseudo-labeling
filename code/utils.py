@@ -1,16 +1,32 @@
-from matplotlib import pyplot as plt
-from sklearn.preprocessing import label_binarize
+import datetime
+import pytz
+import os
 import torch
-import torchvision.transforms as transforms
+from matplotlib import pyplot as plt
 import glob
 import numpy as np
 from sklearn.metrics import confusion_matrix
 import seaborn as sns
 import cv2
 from sklearn.manifold import TSNE
-from tqdm import tqdm
 
-from load_cifar10 import load_cifar10
+
+def get_date():
+    return datetime.datetime.now(
+        pytz.timezone('Asia/Tokyo')).strftime('%Y.%m.%d.%H.%M.%S')
+
+
+def make_folder(path):
+    if not os.path.exists(path):
+        os.mkdir(path)
+
+
+def fix_seed(seed):
+    np.random.seed(seed)
+    torch.manual_seed(seed)  # fix the initial value of the network weight
+    torch.cuda.manual_seed(seed)  # for cuda
+    torch.cuda.manual_seed_all(seed)  # for multi-GPU
+    torch.backends.cudnn.deterministic = True  # choose the determintic algorithm
 
 
 def save_confusion_matrix(gt, pred, path, epoch):
