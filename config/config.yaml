@@ -5,13 +5,18 @@ is_uni: True
 
 result_path: /result/
 
-lr: 0.0001
+seed: 0
+lr: 0.001
 batch_size: 512
+mini_batch: 8
 num_workers: 2
 device: 'cuda'
 num_epochs: 30
 is_pretrained: True
 is_pretrained_by_proportion_loss: False
+w_proportion: 1
+proportion_metric: ce
+w_ce: 1
 
 fpl:
   is_online_prediction: True

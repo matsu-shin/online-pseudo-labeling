@@ -4,6 +4,7 @@ import numpy as np
 from tqdm import tqdm
 import torch.nn.functional as F
 from pulp import *
+from mip import *
 
 
 class FPL:
@@ -52,7 +53,13 @@ class FPL:
         pseudo_loss_list, pseudo_acc_list = [], []
         pred_list, feature_list = [], []
 
-        for data, label, pseudo_label in loader:
+        for data, label, pseudo_label, _ in loader:
+
+            (_, _, w, h, c) = data.size()
+            data = data.reshape(-1, w, h, c)
+            label = label.reshape(-1)
+            pseudo_label = pseudo_label.reshape(-1)
+
             data, label = data.to(device), label.to(device)
             pseudo_label = pseudo_label.to(device)
 
@@ -112,18 +119,42 @@ class FPL:
             total_loss_n = total_loss[n].reshape(-1)
             k_n = self.k[n]
 
-            m = LpProblem()
-            d_n = [LpVariable('d%d' % i, cat=LpBinary) for i in range(
-                self.num_instances*self.num_classes)]  # 変数
-            m += lpDot(total_loss_n, d_n)  # objective funcation
-            for a in A.transpose():
-                m += lpDot(a, d_n) <= 1
+            # # pulp
+            # # m = LpProblem()
+            # # d_n = [LpVariable('d%d' % i, cat=LpBinary) for i in range(
+            # #     self.num_instances*self.num_classes)]  # 変数
+            # # m += lpDot(total_loss_n, d_n)  # objective funcation
+            # # # for a in A.transpose():
+            # # #     m += lpDot(a, d_n) <= 1
+            # # for i, a in enumerate(A.transpose()):
+            # #     m += lpDot(a[i*self.num_classes: (i+1)*self.num_classes],
+            # #                d_n[i*self.num_classes: (i+1)*self.num_classes]) <= 1
+            # # for i, b in enumerate(B.transpose()):
+            # #     m += lpDot(b, d_n) == k_n[i]
+
+            # # m.solve(PULP_CBC_CMD(msg=False, threads=10))
+            # # d_n = [int(value(d_n[i]))
+            # #        for i in range(self.num_instances*self.num_classes)]
+            # # d_n = np.array(d_n).reshape(self.num_instances, self.num_classes)
+            # # self.d[n] = d_n.argmax(1)
+
+            # mip
+            m = Model()
+            d_n = m.add_var_tensor((self.num_instances*self.num_classes, ),
+                                   'd', var_type=BINARY)
+            m.objective = minimize(
+                xsum(x*y for x, y in zip(total_loss_n, d_n)))
+            for i, a in enumerate(A.transpose()):
+                m += xsum(x*y for x, y in zip(a[i*self.num_classes: (i+1)*self.num_classes],
+                                              d_n[i*self.num_classes: (i+1)*self.num_classes])) <= 1
             for i, b in enumerate(B.transpose()):
-                m += lpDot(b, d_n) == k_n[i]
-            m.solve(PULP_CBC_CMD(msg=False))
-            d_n = [int(value(d_n[i]))
-                   for i in range(self.num_instances*self.num_classes)]
-            d_n = np.array(d_n).reshape(self.num_instances, self.num_classes)
+                m += xsum(x*y for x, y in zip(b, d_n)) == k_n[i]
+
+            m.verbose = 0
+            # m.threads = -1
+            m.optimize()
+            d_n = np.array(d_n.astype(float)).reshape(
+                self.num_instances, self.num_classes)
             self.d[n] = d_n.argmax(1)
 
 

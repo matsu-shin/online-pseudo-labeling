@@ -2,17 +2,19 @@ import numpy as np
 from tqdm import tqdm
 import torch
 import torchvision.transforms as transforms
+import torch.nn.functional as F
 
 
 class TrainDataset(torch.utils.data.Dataset):
-    def __init__(self, data, label, pseudo_label):
+    def __init__(self, data, label, pseudo_label, proportion):
         self.data = data
         self.label = label
         self.pseudo_label = pseudo_label
+        self.proportion = proportion
         self.transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.5071, 0.4865, 0.4409), (0.2673, 0.2564, 0.2762))])
-        self.len = self.label.shape[0]
+        self.len = self.data.shape[0]
 
     def __len__(self):
         return self.len
@@ -21,36 +23,46 @@ class TrainDataset(torch.utils.data.Dataset):
         data = self.data[idx]
         label = self.label[idx]
         pseudo_label = self.pseudo_label[idx]
+        proportion = self.proportion[idx]
 
-        data = self.transform(data)
+        (n, w, h, c) = data.shape
+        normalized_data = torch.zeros((n, c, w, h))
+        for i in range(data.shape[0]):
+            normalized_data[i] = self.transform(data[i])
+        normalized_data = normalized_data.float()
         label = torch.tensor(label).long()
         pseudo_label = torch.tensor(pseudo_label).long()
+        proportion = torch.tensor(proportion).float()
 
-        return data, label, pseudo_label
+        return normalized_data, label, pseudo_label, proportion
 
 
-def train(model, criterion, optimizer, loader, device):
+def train(model, ce_loss_f, proportion_loss_f, optimizer, loader, cfg):
     model.train()
-    # loss_list, acc_list = [], []
-    # pseudo_loss_list, pseudo_acc_list = [], []
+    ce_losses, proportion_losses = [], []
     print('training model...')
-    for data, _, pseudo_label in tqdm(loader):
-        data, pseudo_label = data.to(device), pseudo_label.to(device)
+    for data, _, pseudo_label, proportion in tqdm(loader):
+        data, pseudo_label = data.to(cfg.device), pseudo_label.to(cfg.device)
+        proportion = proportion.to(cfg.device)
+
+        (n, b, w, h, c) = data.size()
+        data = data.reshape(-1, w, h, c)
+        pseudo_label = pseudo_label.reshape(-1)
+
         y = model(data)
-        pseudo_loss = criterion(y, pseudo_label)
-        pseudo_loss.backward()
+        confidence = F.softmax(y, dim=1)
+        confidence = confidence.reshape(n, b, -1).mean(dim=1)
+
+        ce_loss = cfg.w_ce*ce_loss_f(y, pseudo_label)
+        proportion_loss = cfg.w_proportion * \
+            proportion_loss_f(confidence, proportion)
+        loss = ce_loss + proportion_loss
+
+        loss.backward()
         optimizer.step()
         optimizer.zero_grad()
 
-    #     pseudo_loss_list.append(pseudo_loss.item())
-    #     loss_list.append(criterion(y, label).item())
+        ce_losses.append(ce_loss.item())
+        proportion_losses.append(proportion_loss.item())
 
-    #     y, pseudo_label = y.cpu().detach().numpy(), pseudo_label.cpu().detach().numpy()
-    #     acc_list.extend(y.argmax(1) == label)
-    #     pseudo_acc_list.extend(y.argmax(1) == pseudo_label)
-
-    # loss = np.array(loss_list).mean()
-    # acc = np.array(acc_list).mean()
-    # pseudo_acc = np.array(pseudo_acc_list).mean()
-
-    # return loss, acc, pseudo_acc
+    return np.array(ce_losses).mean(), np.array(proportion_losses).mean()
