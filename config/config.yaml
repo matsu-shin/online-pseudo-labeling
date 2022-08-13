@@ -8,7 +8,7 @@ result_path: /result/
 seed: 0
 lr: 0.001
 batch_size: 512
-mini_batch: 8
+mini_batch: 30
 num_workers: 2
 device: 'cuda'
 num_epochs: 30
@@ -17,6 +17,7 @@ is_pretrained_by_proportion_loss: False
 w_proportion: 1
 proportion_metric: ce
 w_ce: 1
+pseudo_ratio: 1.0
 
 fpl:
   is_online_prediction: True
