@@ -4,3 +4,4 @@ img_size: 224
 is_to_rgb: True
 img_ch: 3
 num_classes: 5
+is_debug_labeled: True

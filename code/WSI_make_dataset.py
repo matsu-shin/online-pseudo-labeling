@@ -5,6 +5,7 @@ from glob import glob
 from PIL import Image
 from tqdm import tqdm
 import pickle
+import matplotlib.pyplot as plt
 
 # 0~41:supervised image, 42~50:useless supervised image, 100~:un-supervised image
 image_dict = {0: 'H1700285HE', 1: 'H16-13099_5_tumor_HE', 2: 'H1701984', 3: 'H02-09154_12_tumor_HE', 4: 'H1702766', 5: 'H1702480', 6: 'H1702105', 7: 'H02-09154_10-11_tumor_HE', 8: 'H17-09215_3_tumor_HE', 9: 'H17-09136_4_tumor_HE',
@@ -158,26 +159,102 @@ image_dict = {0: 'H1700285HE', 1: 'H16-13099_5_tumor_HE', 2: 'H1701984', 3: 'H02
 
 
 #########################################################################
-# labeled data
-dataset_path = '../dataset/WSI/labeled/'
+# # labeled data
+# dataset_path = '../dataset/WSI/labeled/'
 
-wsi_path_list = glob(dataset_path+'/*')[:20]
-print(wsi_path_list)
+# wsi_path_list = glob(dataset_path+'/*')[:20]
+# print(wsi_path_list)
 
-patch_path_list = []
-for path in wsi_path_list:
-    patch_path_list.extend(glob(path+'/_/*'))
-print(len(patch_path_list))
+# patch_path_list = []
+# for path in wsi_path_list:
+#     patch_path_list.extend(glob(path+'/_/*'))
+# print(len(patch_path_list))
 
-data_list, label_list = [], []
-for path in tqdm(patch_path_list):
-    data = Image.open(path)
-    data = np.asarray(data.convert('RGB'))
-    label = int(path[-5: -4])
-    data_list.append(data)
-    label_list.append(label)
-data = np.array(data_list)
-label = np.array(label_list)
-print(data.shape, label.shape)
-np.save('../dataset/WSI/test_data.npy', data)
-np.save('../dataset/WSI/test_label.npy', label)
+# data_list, label_list = [], []
+# for path in tqdm(patch_path_list):
+#     data = Image.open(path)
+#     data = np.asarray(data.convert('RGB'))
+#     label = int(path[-5: -4])
+#     data_list.append(data)
+#     label_list.append(label)
+# data = np.array(data_list)
+# label = np.array(label_list)
+# print(data.shape, label.shape)
+# np.save('../dataset/WSI/test_data.npy', data)
+# np.save('../dataset/WSI/test_label.npy', label)
+
+# dataset_path = '../dataset/WSI/labeled/'
+# wsi_path_list = glob(dataset_path+'/*')[20:]
+# print(wsi_path_list)
+
+# patch_path_list = []
+# for path in wsi_path_list:
+#     patch_path_list.extend(glob(path+'/_/*'))
+# print(len(patch_path_list))
+
+# data_list, label_list = [], []
+# for path in tqdm(patch_path_list):
+#     data = Image.open(path)
+#     data = np.asarray(data.convert('RGB'))
+#     label = int(path[-5: -4])
+#     data_list.append(data)
+#     label_list.append(label)
+# data = np.array(data_list)
+# label = np.array(label_list)
+# print(data.shape, label.shape)
+# np.save('../dataset/WSI/train_data.npy', data)
+# np.save('../dataset/WSI/train_label.npy', label)
+
+# with open("../dataset/WSI/image_name_dict.pkl", "rb") as tf:
+#     image_name_dict = pickle.load(tf)
+
+# train_data, train_label = {}, {}
+# train_proportion = {}
+# for idx in tqdm(range(20, 42)):
+#     bag_data, bag_label = [], []
+#     wsi_name = image_name_dict[idx]
+#     instance_path_list = glob('../dataset/WSI/labeled/'+wsi_name+'/_/*')
+#     for path in instance_path_list:
+#         data = Image.open(path)
+#         data = np.asarray(data.convert('RGB'))
+#         label = int(path[-5: -4])
+#         bag_data.append(np.array(data))
+#         bag_label.append(label)
+
+#     bag_data = np.array(bag_data)
+#     bag_label = np.array(bag_label)
+#     train_data[idx] = bag_data
+#     train_label[idx] = bag_label
+
+#     proportion = np.zeros(5)
+#     for i in bag_label:
+#         proportion[i] += 1
+#     proportion /= proportion.sum()
+#     train_proportion[idx] = proportion
+#     print(proportion)
+
+# with open("../dataset/WSI/train_data.pkl", "wb") as tf:
+#     pickle.dump(train_data, tf)
+# with open("../dataset/WSI/train_label.pkl", "wb") as tf:
+#     pickle.dump(train_label, tf)
+# with open("../dataset/WSI/train_proportion.pkl", "wb") as tf:
+#     pickle.dump(train_proportion, tf)
+
+# with open("../dataset/WSI/train_data.pkl", "rb") as tf:
+#     train_data = pickle.load(tf)
+# with open("../dataset/WSI/train_label.pkl", "rb") as tf:
+#     train_label = pickle.load(tf)
+# with open("../dataset/WSI/train_proportion.pkl", "rb") as tf:
+#     train_proportion = pickle.load(tf)
+# print(train_data[20].shape, train_label[20][:10])
+# print(train_proportion[20])
+
+# with open("../dataset/WSI/image_name_dict.pkl", "rb") as tf:
+#     image_name_dict = pickle.load(tf)
+# num_instances = []
+# for idx in tqdm(range(42)):
+#     wsi_name = image_name_dict[idx]
+#     instance_path_list = glob('../dataset/WSI/labeled/'+wsi_name+'/_/*')
+#     num_instances.append(len(instance_path_list))
+# plt.hist(num_instances, bins=10)
+# plt.savefig('../dataset/WSI/labeled_num_instances.png')

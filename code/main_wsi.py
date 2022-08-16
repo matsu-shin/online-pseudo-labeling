@@ -59,6 +59,27 @@ class Dataset(torch.utils.data.Dataset):
         return data, label
 
 
+def debug_labeled(model, cfg):
+    dataset_path = '../../../../dataset/WSI/'
+    train_data = np.load(dataset_path+'train_data.npy')
+    train_label = np.load(dataset_path+'train_label.npy')
+    train_dataset = Dataset(train_data, train_label)
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=cfg.batch_size,
+        shuffle=False,  num_workers=cfg.num_workers)
+
+    model.eval()
+    train_gt, train_pred = [], []
+    for data, label in tqdm(train_loader, leave=False):
+        data, label = data.to(cfg.device), label.to(cfg.device)
+        y = model(data)
+        train_gt.extend(label.cpu().detach().numpy())
+        train_pred.extend(y.argmax(1).cpu().detach().numpy())
+    train_gt, train_pred = np.array(train_gt), np.array(train_pred)
+    train_acc = np.array(train_gt == train_pred).mean()
+    return train_acc
+
+
 @ hydra.main(config_path='../config', config_name='config')
 def main(cfg: DictConfig) -> None:
     fix_seed(cfg.seed)
@@ -83,13 +104,28 @@ def main(cfg: DictConfig) -> None:
     # unlabeled_idx = np.setdiff1d(unlabeled_idx, not_used_idx)
 
     dataset_path = '../../../../dataset/WSI/'
-    with open(dataset_path+"image_name_dict.pkl", "rb") as tf:
-        image_name_dict = pickle.load(tf)
+
+    # with open(dataset_path+"image_name_dict.pkl", "rb") as tf:
+    #     image_name_dict = pickle.load(tf)
     with open(dataset_path+"proportion_dict.pkl", "rb") as tf:
         proportion_dict = pickle.load(tf)
     with open(dataset_path+"train_bag_data.pkl", "rb") as tf:
         train_bag_data = pickle.load(tf)
+
     unlabeled_idx = list(proportion_dict.keys())
+
+    if cfg.dataset.is_debug_labeled:
+        with open(dataset_path+"train_data.pkl", "rb") as tf:
+            labeled_train_bag_data = pickle.load(tf)
+        with open(dataset_path+"train_label.pkl", "rb") as tf:
+            labeled_train_bag_label = pickle.load(tf)
+        with open(dataset_path+"train_proportion.pkl", "rb") as tf:
+            labeled_train_proportion = pickle.load(tf)
+
+        labeled_idx = list(labeled_train_proportion.keys())
+        unlabeled_idx += labeled_idx
+        train_bag_data.update(labeled_train_bag_data)
+        proportion_dict.update(labeled_train_proportion)
 
     num_instances_dict = {}
     for idx in unlabeled_idx:
@@ -133,7 +169,8 @@ def main(cfg: DictConfig) -> None:
         shuffle=False,  num_workers=cfg.num_workers)
 
     fix_seed(cfg.seed)
-    train_acces, test_acces, flip_p_label_ratioes = [], [], []
+    train_p_acces, test_acces, flip_p_label_ratioes = [], [], []
+    p_label_acces, train_acces = [], []
     for epoch in range(cfg.num_epochs):
         s_time = time.time()
 
@@ -156,6 +193,14 @@ def main(cfg: DictConfig) -> None:
             flip_p_label_ratioes.append(flip_p_label_ratio)
             temp_p_label = p_label.copy()
         # print(pseudo_label.shape)
+
+        if cfg.dataset.is_debug_labeled:
+            p_label_acc = []
+            for idx in labeled_idx:
+                p_label_acc.extend(
+                    fpl.d_dict[idx] == labeled_train_bag_label[idx])
+            p_label_acc = np.array(p_label_acc).mean()
+            p_label_acces.append(p_label_acc)
 
         # train
         train_dataset = Dataset(train_data, p_label)
@@ -180,10 +225,16 @@ def main(cfg: DictConfig) -> None:
             train_pred.extend(y.argmax(1).cpu().detach().numpy())
         train_gt, train_pred = np.array(train_gt), np.array(train_pred)
         train_loss = np.array(train_losses).mean()
-        train_acc = np.array(train_gt == train_pred).mean()
-        train_acces.append(train_acc)
+        train_p_acc = np.array(train_gt == train_pred).mean()
+        train_p_acces.append(train_p_acc)
 
         # test
+        if cfg.dataset.is_debug_labeled:
+            train_acc = debug_labeled(model, cfg)
+            train_acces.append(train_acc)
+            log.info('pseudo_label_acc: %.4f, train_acc: %.4f' %
+                     (p_label_acc, train_acc))
+
         model.eval()
         test_losses = []
         test_gt, test_pred = [], []
@@ -200,14 +251,16 @@ def main(cfg: DictConfig) -> None:
         test_acces.append(test_acc)
 
         e_time = time.time()
-        log.info('[Epoch: %d/%d (%ds)] train_loss: %.4f, train_acc: %.4f, flip: %.4f, test_loss: %.4f, test_acc: %.4f' %
-                 (epoch+1, cfg.num_epochs, e_time-s_time, train_loss, train_acc, flip_p_label_ratio, test_loss, test_acc))
+        log.info('[Epoch: %d/%d (%ds)] train_loss: %.4f, train_p_acc: %.4f, flip: %.4f, test_loss: %.4f, test_acc: %.4f' %
+                 (epoch+1, cfg.num_epochs, e_time-s_time, train_loss, train_p_acc, flip_p_label_ratio, test_loss, test_acc))
         save_confusion_matrix(gt=test_gt, pred=test_pred,
                               path=result_path+'cm.png', epoch=epoch+1)
 
         plt.plot(train_acces, label='train_acc')
+        plt.plot(train_p_acces, label='train_pseudo_acc')
         plt.plot(test_acces, label='test_acc')
         plt.plot(flip_p_label_ratioes, label='flip_pseudo_label_ratio')
+        plt.plot(p_label_acces, label='pseudo_label_acc')
         plt.legend()
         plt.ylim(0, 1)
         plt.xlabel('epoch')
