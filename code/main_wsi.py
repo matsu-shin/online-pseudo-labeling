@@ -59,6 +59,28 @@ class Dataset(torch.utils.data.Dataset):
         return data, label
 
 
+class DatasetTrain(torch.utils.data.Dataset):
+    def __init__(self, data, label, used_index):
+        self.data = data
+        self.label = label
+        self.used_index = used_index
+        self.transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5071, 0.4865, 0.4409), (0.2673, 0.2564, 0.2762))])
+        self.len = self.used_index.shape[0]
+
+    def __len__(self):
+        return self.len
+
+    def __getitem__(self, idx):
+        index = self.used_index[idx]
+        data = self.data[index]
+        data = self.transform(data)
+        label = self.label[index]
+        label = torch.tensor(label).long()
+        return data, label
+
+
 def debug_labeled(model, cfg):
     dataset_path = '../../../../dataset/WSI/'
     train_data = np.load(dataset_path+'train_data.npy')
@@ -86,7 +108,7 @@ def main(cfg: DictConfig) -> None:
 
     # file name
     cwd = hydra.utils.get_original_cwd()
-    result_path = cwd+cfg.result_path
+    result_path = cwd + cfg.result_path
     result_path += 'wsi/'
     make_folder(result_path)
     result_path += 'eta_%s' % str(cfg.fpl.eta)
@@ -105,7 +127,8 @@ def main(cfg: DictConfig) -> None:
     # not_used_idx = [124, 134, 261, 270, 353]
     # unlabeled_idx = np.setdiff1d(unlabeled_idx, not_used_idx)
 
-    dataset_path = '../../../../dataset/WSI/'
+    # dataset_path = '../../../../dataset/WSI/'
+    dataset_path = cwd + cfg.dataset.dir
 
     # with open(dataset_path+"image_name_dict.pkl", "rb") as tf:
     #     image_name_dict = pickle.load(tf)
@@ -143,7 +166,7 @@ def main(cfg: DictConfig) -> None:
     train_loader_for_fpl = torch.utils.data.DataLoader(
         train_dataset_for_fpl, batch_size=cfg.batch_size,
         shuffle=False,  num_workers=cfg.num_workers)
-    data = next(iter(train_loader_for_fpl))
+    # data = next(iter(train_loader_for_fpl))
     # print(data.size())
 
     # define model, criterion and optimizer
@@ -208,12 +231,15 @@ def main(cfg: DictConfig) -> None:
             temp_p_label = p_label.copy()
 
         # train
-        train_dataset = Dataset(
-            train_data[p_label != -1], p_label[p_label != -1])
+        # to reduce cpu memory consumption
+        train_dataset = DatasetTrain(train_data, p_label,
+                                     np.where(p_label != -1)[0])
+        # train_dataset = Dataset(
+        #     train_data[p_label != -1], p_label[p_label != -1])
         train_loader = torch.utils.data.DataLoader(
             train_dataset, batch_size=cfg.batch_size,
             shuffle=True,  num_workers=cfg.num_workers)
-        data, p_label = next(iter(train_loader))
+        # data, p_label = next(iter(train_loader))
         # print(data.size(), p_label.size())
 
         model.train()

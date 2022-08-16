@@ -17,7 +17,7 @@ is_pretrained_by_proportion_loss: False
 w_proportion: 1
 proportion_metric: ce
 w_ce: 1
-pseudo_ratio: 0.2
+pseudo_ratio: 1.0
 
 fpl:
   is_online_prediction: True
