@@ -89,7 +89,9 @@ def main(cfg: DictConfig) -> None:
     result_path = cwd+cfg.result_path
     result_path += 'wsi/'
     make_folder(result_path)
-    result_path += 'eta_%s/' % str(cfg.fpl.eta)
+    result_path += 'eta_%s' % str(cfg.fpl.eta)
+    result_path += '_pseudo_ratio_%s' % str(cfg.pseudo_ratio)
+    result_path += '/'
     make_folder(result_path)
 
     fh = logging.FileHandler(result_path+'exec.log')
@@ -158,6 +160,7 @@ def main(cfg: DictConfig) -> None:
               sigma=cfg.fpl.sigma,
               eta=cfg.fpl.eta,
               loss_f=cfg.fpl.loss_f,
+              pseudo_ratio=cfg.pseudo_ratio,
               is_online_prediction=cfg.fpl.is_online_prediction)
 
     # make test_loader
@@ -179,11 +182,22 @@ def main(cfg: DictConfig) -> None:
                          num_instances_dict, cfg.device)
         fpl.update_d(num_instances_dict)
 
+        if cfg.dataset.is_debug_labeled:
+            p_label_acc = []
+            for idx in labeled_idx:
+                acc_list = fpl.d_dict[idx] == labeled_train_bag_label[idx]
+                acc_list = acc_list[fpl.d_dict[idx] != -1]
+                p_label_acc.extend(acc_list)
+            p_label_acc = np.array(p_label_acc).mean()
+            p_label_acces.append(p_label_acc)
+
+        # flatten pseudo label
         p_label = []
         for idx in unlabeled_idx:
             p_label.extend(fpl.d_dict[idx])
         p_label = np.array(p_label)
 
+        # calculate flip_pseudo_label_ratio
         if epoch == 0:
             flip_p_label_ratio = nan
             flip_p_label_ratioes.append(flip_p_label_ratio)
@@ -192,18 +206,10 @@ def main(cfg: DictConfig) -> None:
             flip_p_label_ratio = (p_label != temp_p_label).mean()
             flip_p_label_ratioes.append(flip_p_label_ratio)
             temp_p_label = p_label.copy()
-        # print(pseudo_label.shape)
-
-        if cfg.dataset.is_debug_labeled:
-            p_label_acc = []
-            for idx in labeled_idx:
-                p_label_acc.extend(
-                    fpl.d_dict[idx] == labeled_train_bag_label[idx])
-            p_label_acc = np.array(p_label_acc).mean()
-            p_label_acces.append(p_label_acc)
 
         # train
-        train_dataset = Dataset(train_data, p_label)
+        train_dataset = Dataset(
+            train_data[p_label != -1], p_label[p_label != -1])
         train_loader = torch.utils.data.DataLoader(
             train_dataset, batch_size=cfg.batch_size,
             shuffle=True,  num_workers=cfg.num_workers)
@@ -255,6 +261,12 @@ def main(cfg: DictConfig) -> None:
                  (epoch+1, cfg.num_epochs, e_time-s_time, train_loss, train_p_acc, flip_p_label_ratio, test_loss, test_acc))
         save_confusion_matrix(gt=test_gt, pred=test_pred,
                               path=result_path+'cm.png', epoch=epoch+1)
+
+        np.save(result_path+'train_acc', train_acces)
+        np.save(result_path+'train_pseudo_acc', train_p_acces)
+        np.save(result_path+'test_acc', test_acces)
+        np.save(result_path+'flip_pseudo_label_ratio', flip_p_label_ratioes)
+        np.save(result_path+'pseudo_label_acc', p_label_acces)
 
         plt.plot(train_acces, label='train_acc')
         plt.plot(train_p_acces, label='train_pseudo_acc')

@@ -8,35 +8,35 @@ from mip import *
 
 
 class FPL:
-    def __init__(self, num_instances_dict, proportion_dict, sigma, eta, loss_f, is_online_prediction=True):
+    def __init__(self, num_instances_dict, proportion_dict, sigma, eta, loss_f, pseudo_ratio, is_online_prediction=True):
         self.num_instances_dict = num_instances_dict
         self.proportion_dict = proportion_dict
         self.num_classes = len(self.proportion_dict[100])
         self.sigma = sigma
         self.eta = eta
         self.loss_f = loss_f
+        self.pseudo_ratio = pseudo_ratio
         self.is_online_prediction = is_online_prediction
 
         self.k_dict = {}
         for idx, num_instances in num_instances_dict.items():
             label_proportion = np.array(self.proportion_dict[idx])
-            n = num_instances * label_proportion  # * self.pseudo_ratio
+            n = num_instances * label_proportion * self.pseudo_ratio
             int_n = n.astype(int)
             for i in np.argsort(n-int_n)[::-1]:
-                # if int_n.sum() == int(num_instances*self.pseudo_ratio):
-                if int_n.sum() == num_instances:
+                if int_n.sum() == int(num_instances*self.pseudo_ratio):
                     break
                 int_n[i] += 1
             self.k_dict[idx] = int_n
 
         random.seed(0)
         self.d_dict = {}
-        for idx, num_instances in num_instances_dict.items():
-            d = []
-            for c in range(self.num_classes):
-                d.extend([c]*int(self.k_dict[idx][c]))
-            random.shuffle(d)
-            self.d_dict[idx] = d
+        # for idx, num_instances in num_instances_dict.items():
+        #     d = []
+        #     for c in range(self.num_classes):
+        #         d.extend([c]*int(self.k_dict[idx][c]))
+        #     random.shuffle(d)
+        #     self.d_dict[idx] = d
 
         self.theta = {}
         self.cumulative_loss = {}
@@ -92,7 +92,9 @@ class FPL:
             m.optimize()
             d = np.array(d.astype(float)).reshape(
                 num_instances, self.num_classes)
+
             self.d_dict[idx] = d.argmax(1)
+            self.d_dict[idx][d.sum(axis=1) != 1] = -1
 
 
 def song_loss(confidence, label):
