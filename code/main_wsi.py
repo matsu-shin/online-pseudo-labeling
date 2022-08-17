@@ -268,7 +268,8 @@ def main(cfg: DictConfig) -> None:
 
         # test
         if cfg.dataset.is_debug_labeled:
-            train_acc = debug_labeled(model, cfg, dataset_path)
+            train_acc = debug_labeled(
+                model=model, dataset_path=dataset_path, cfg=cfg)
             train_acces.append(train_acc)
             log.info('pseudo_label_acc: %.4f, train_acc: %.4f' %
                      (p_label_acc, train_acc))
