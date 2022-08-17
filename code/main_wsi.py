@@ -15,6 +15,7 @@ from glob import glob
 from PIL import Image
 import pickle
 import time
+import gc
 
 from FPL_wsi import FPL
 from utils import fix_seed, make_folder, save_confusion_matrix
@@ -81,8 +82,7 @@ class DatasetTrain(torch.utils.data.Dataset):
         return data, label
 
 
-def debug_labeled(model, cfg):
-    dataset_path = '../../../../dataset/WSI/'
+def debug_labeled(model, dataset_path, cfg):
     train_data = np.load(dataset_path+'train_data.npy')
     train_label = np.load(dataset_path+'train_label.npy')
     train_dataset = Dataset(train_data, train_label)
@@ -161,6 +161,12 @@ def main(cfg: DictConfig) -> None:
         train_data.extend(train_bag_data[idx])
     train_data = np.array(train_data)
     # print(train_data.shape)
+
+    # to reduce cpu memory consumption
+    del train_bag_data
+    gc.collect()
+    del labeled_train_bag_data
+    gc.collect()
 
     train_dataset_for_fpl = Dataset_theta(train_data)
     train_loader_for_fpl = torch.utils.data.DataLoader(
@@ -262,7 +268,7 @@ def main(cfg: DictConfig) -> None:
 
         # test
         if cfg.dataset.is_debug_labeled:
-            train_acc = debug_labeled(model, cfg)
+            train_acc = debug_labeled(model, cfg, dataset_path)
             train_acces.append(train_acc)
             log.info('pseudo_label_acc: %.4f, train_acc: %.4f' %
                      (p_label_acc, train_acc))
