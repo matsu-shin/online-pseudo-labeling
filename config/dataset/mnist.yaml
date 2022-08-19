@@ -3,7 +3,4 @@ dir: /data/MNIST/raw/
 img_size: 28
 is_to_rgb: True
 img_ch: 3
-
-num_instances: 64
-num_bags: 100
 num_classes: 10

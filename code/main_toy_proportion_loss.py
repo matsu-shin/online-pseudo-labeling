@@ -55,7 +55,9 @@ def main(cfg: DictConfig) -> None:
     result_path = cwd + cfg.result_path
     result_path += 'toy_proportion_loss/'
     make_folder(result_path)
-    result_path += 'samp_%s' % str(cfg.num_sampled_instances)
+    result_path += '%s' % str(cfg.dataset.name)
+    result_path += '_samp_%s' % str(cfg.num_sampled_instances)
+    result_path += '_mini_batch_%s' % str(cfg.mini_batch)
     result_path += '/'
     make_folder(result_path)
 
@@ -63,10 +65,6 @@ def main(cfg: DictConfig) -> None:
     log.addHandler(fh)
     log.info(OmegaConf.to_yaml(cfg))
     log.info('cwd:%s' % cwd)
-
-    num_bags = cfg.dataset.num_bags
-    num_instances = cfg.dataset.num_instances
-    num_classes = cfg.dataset.num_classes
 
     # load data
     if cfg.dataset.name == 'mnist':
@@ -80,20 +78,16 @@ def main(cfg: DictConfig) -> None:
                 dataset_dir=cwd+cfg.dataset.dir
             )
 
-    dataset_path = cwd + \
-        '/obj/%s/bias-%s-index.npy' % (cfg.dataset.name,
-                                       cfg.dataset.num_instances)
+    dataset_path = cwd + '/obj/%s/bias-1024-index.npy' % (cfg.dataset.name)
     print('loading...  '+dataset_path)
     bags_index = np.load(dataset_path)
-    cfg.dataset.num_classes = 10
-    cfg.dataset.num_bags = bags_index.shape[0]
     num_classes = cfg.dataset.num_classes
-    num_instances = cfg.dataset.num_instances
-    num_bags = cfg.dataset.num_bags
+    num_bags = bags_index.shape[0]
+    num_instances = bags_index.shape[1]
 
     bags_data, bags_label = train_data[bags_index], train_label[bags_index]
     label_proportion = np.zeros((num_bags, num_classes))
-    for n in range(cfg.dataset.num_bags):
+    for n in range(num_bags):
         bag_one_hot_label = np.identity(num_classes)[bags_label[n]]
         label_proportion[n] = bag_one_hot_label.sum(axis=0)/num_instances
 
