@@ -110,19 +110,19 @@ def create_bias_bags_index(label, num_bags=1000, num_instances=1024):
 
 
 if __name__ == '__main__':
-    num_bags = 500
+    num_bags = 100
     num_instances = 1024
 
-    # train_data, train_label, _, _ = load_minist(
-    #     dataset_dir='./data/MNIST/raw/')
-    train_data, train_label, _, _ = load_cifar10(dataset_dir='./data/')
+    train_data, train_label, _, _ = load_minist(
+        dataset_dir='./data/MNIST/raw/')
+    # train_data, train_label, _, _ = load_cifar10(dataset_dir='./data/')
     num_classes = train_label.max()+1
     bags_index, label_proportion = create_bias_bags_index(
         label=train_label, num_bags=num_bags, num_instances=num_instances)
     print(bags_index.shape, label_proportion.shape)
-    np.save('./obj/cifar10/bias-%d-index.npy' %
+    np.save('./obj/mnist/bias-%d-index.npy' %
             (num_instances), bags_index)
-    np.save('./obj/cifar10/bias-%d-proporton.npy' %
+    np.save('./obj/mnist/bias-%d-proporton.npy' %
             (num_instances), label_proportion)
 
     # # num_instances = 100
