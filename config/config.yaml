@@ -1,13 +1,11 @@
 defaults:
   - dataset: wsi
-is_load_bag: True
-is_uni: True
 
 result_path: /result/
 
 seed: 0
 lr: 0.001
-batch_size: 512
+batch_size: 256
 mini_batch: 8
 num_workers: 2
 device: 'cuda'

@@ -9,6 +9,7 @@ from sklearn.metrics import confusion_matrix
 import seaborn as sns
 import cv2
 from sklearn.manifold import TSNE
+import torchvision.transforms as transforms
 
 
 def get_date():
@@ -29,17 +30,55 @@ def fix_seed(seed):
     torch.backends.cudnn.deterministic = True  # choose the determintic algorithm
 
 
-def save_confusion_matrix(gt, pred, path, epoch):
-    # cm = confusion_matrix(gt, pred, normalize='true')
-    # sns.heatmap(cm, annot=True, cmap='Blues_r', fmt="1.2f")
-    cm = confusion_matrix(gt, pred)
+class Dataset(torch.utils.data.Dataset):
+    def __init__(self, data, label):
+        self.data = data
+        self.label = label
+        self.transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5071, 0.4865, 0.4409), (0.2673, 0.2564, 0.2762))])
+        self.len = self.data.shape[0]
+
+    def __len__(self):
+        return self.len
+
+    def __getitem__(self, idx):
+        data = self.data[idx]
+        data = self.transform(data)
+        label = self.label[idx]
+        label = torch.tensor(label).long()
+        return data, label
+
+
+def save_confusion_matrix(cm, path, title=''):
     sns.heatmap(cm, annot=True, cmap='Blues_r', fmt="d")
     plt.xlabel('pred')
     plt.ylabel('GT')
-    acc = (gt == pred).mean()
-    plt.title('epoch: %d, acc: %.2f' % (epoch, acc))
+    plt.title(title)
     plt.savefig(path)
     plt.close()
+
+
+def cal_OP_PC_mIoU(cm):
+    num_classes = cm.shape[0]
+
+    TP_c = np.zeros(num_classes)
+    for i in range(num_classes):
+        TP_c[i] = cm[i][i]
+
+    FP_c = np.zeros(num_classes)
+    for i in range(num_classes):
+        FP_c[i] = cm[i, :].sum()-cm[i][i]
+
+    FN_c = np.zeros(num_classes)
+    for i in range(num_classes):
+        FN_c[i] = cm[:, i].sum()-cm[i][i]
+
+    OP = TP_c.sum() / (TP_c+FP_c).sum()
+    PC = (TP_c/(TP_c+FP_c)).mean()
+    mIoU = (TP_c/(TP_c+FP_c+FN_c)).mean()
+
+    return OP, PC, mIoU
 
 
 def create_video_cm(cwd):
