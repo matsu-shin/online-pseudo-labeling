@@ -1,4 +1,5 @@
 from math import nan
+from unittest import result
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import logging
@@ -92,6 +93,8 @@ def main(cfg: DictConfig) -> None:
     result_path = cwd + cfg.result_path
     result_path += 'wsi/'
     make_folder(result_path)
+    if cfg.fpl.is_online_prediction == False:
+        result_path += 'not_op_'
     result_path += 'eta_%s' % str(cfg.fpl.eta)
     result_path += '_pseudo_ratio_%s' % str(cfg.pseudo_ratio)
     result_path += '/'

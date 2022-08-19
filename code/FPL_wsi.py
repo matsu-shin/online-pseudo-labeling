@@ -93,10 +93,19 @@ class FPL:
 
     def update_d(self, num_instances_dict):
         for idx, num_instances in tqdm(num_instances_dict.items(), leave=False):
-            perturbation = np.random.normal(
-                0, self.sigma, (num_instances, self.num_classes))
-            self.cumulative_loss[idx] += self.theta[idx]
-            total_loss = self.cumulative_loss[idx] + self.eta*perturbation
+
+            if self.is_online_prediction:
+                perturbation = np.random.normal(
+                    0, self.sigma, (num_instances, self.num_classes))
+                self.cumulative_loss[idx] += self.theta[idx]
+                total_loss = self.cumulative_loss[idx] + self.eta*perturbation
+            else:
+                total_loss = self.theta[idx]
+
+            # perturbation = np.random.normal(
+            #     0, self.sigma, (num_instances, self.num_classes))
+            # self.cumulative_loss[idx] += self.theta[idx]
+            # total_loss = self.cumulative_loss[idx] + self.eta*perturbation
 
             A = np.repeat(np.arange(num_instances), self.num_classes)
             A = np.identity(num_instances)[A]

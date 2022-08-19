@@ -50,7 +50,12 @@ def main(cfg: DictConfig) -> None:
     result_path += 'toy_fpl/'
     make_folder(result_path)
     result_path += '%s' % (cfg.dataset.name)
-    result_path += 'p_ratio_%s' % (cfg.pseudo_ratio)
+    if cfg.fpl.is_online_prediction == False:
+        result_path += '_not_op_'
+
+    # result_path += 'p_ratio_%s' % (cfg.pseudo_ratio)
+    result_path += '_%s' % (cfg.fpl.loss_f)
+    result_path += '_eta_%s' % (cfg.fpl.eta)
     result_path += '/'
     make_folder(result_path)
 
@@ -72,7 +77,7 @@ def main(cfg: DictConfig) -> None:
             )
 
     dataset_path = cwd + '/obj/%s/bias-1024-index.npy' % (cfg.dataset.name)
-    print('loading...  '+dataset_path)
+    log.info('loading...  '+dataset_path)
     bags_index = np.load(dataset_path)
     num_classes = cfg.dataset.num_classes
     num_bags = bags_index.shape[0]

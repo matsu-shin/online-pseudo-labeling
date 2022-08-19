@@ -101,7 +101,6 @@ class FPL:
         B = np.tile(np.arange(self.num_classes), self.num_instances)
         B = np.identity(self.num_classes)[B]
 
-        print('seletcing pseudo label...')
         for n in tqdm(range(self.num_bags), leave=False):
             total_loss_n = total_loss[n].reshape(-1)
             k_n = self.original_k[n]
