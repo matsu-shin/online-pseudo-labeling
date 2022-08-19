@@ -252,9 +252,38 @@ image_dict = {0: 'H1700285HE', 1: 'H16-13099_5_tumor_HE', 2: 'H1701984', 3: 'H02
 # with open("../dataset/WSI/image_name_dict.pkl", "rb") as tf:
 #     image_name_dict = pickle.load(tf)
 # num_instances = []
-# for idx in tqdm(range(42)):
+# for idx in tqdm(range(100, 503)):
 #     wsi_name = image_name_dict[idx]
-#     instance_path_list = glob('../dataset/WSI/labeled/'+wsi_name+'/_/*')
+#     instance_path_list = glob('../dataset/WSI/unlabeled/'+wsi_name+'/_/*')
 #     num_instances.append(len(instance_path_list))
+# num_instances = np.array(num_instances)
+# print(num_instances.shape)
+# print(sum(num_instances <= 256))
+# print(sum(num_instances <= 128))
+# print(sum(num_instances <= 64))
 # plt.hist(num_instances, bins=10)
 # plt.savefig('../dataset/WSI/labeled_num_instances.png')
+
+# train_label = np.load('../dataset/WSI/train_label.npy')
+# x = np.zeros(5)
+# for i in train_label:
+#     x[i] += 1
+# print(x)
+# test_label = np.load('../dataset/WSI/test_label.npy')
+# x = np.zeros(5)
+# for i in test_label:
+#     x[i] += 1
+# print(x)
+
+# with open("../dataset/WSI/proportion_dict.pkl", "rb") as tf:
+#     proportion_dict = pickle.load(tf)
+# label_proportion = np.array(list(proportion_dict.values()))
+# print(label_proportion.shape)
+# for c in range(5):
+#     plt.hist(label_proportion[:, c], alpha=0.5, label='class: %s' % c)
+#     plt.legend()
+#     plt.xlabel('ratio')
+#     plt.ylabel('freq.')
+#     plt.ylim(0, 320)
+#     plt.savefig('../dataset/WSI/unlabeled_proportion_%s.png' % c)
+#     plt.close()
