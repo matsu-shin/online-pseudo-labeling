@@ -30,29 +30,18 @@ class FPL:
             self.k[n] = int_n_c
         # k.shape => (num_bags, num_classes)
 
-        random.seed(0)
-        self.d = np.zeros((self.num_bags, self.num_instances), dtype=int)
+        self.original_k = np.zeros(
+            (self.num_bags, self.num_classes), dtype=int)
         for n in range(num_bags):
-            d_n = []
-            accum_n = 0
-            for c in range(self.num_classes-1):
-                n_c = int(num_instances * label_proportion[n][c])
-                accum_n += n_c
-                d_n.extend([c]*int(n_c))
-            n_c = int(num_instances-accum_n)
-            d_n.extend([self.num_classes-1]*int(n_c))
+            n_c = num_instances * label_proportion[n]
+            int_n_c = n_c.astype(int)
+            for idx in np.argsort(n_c-int_n_c)[::-1]:
+                if int_n_c.sum() == num_instances:
+                    break
+                int_n_c[idx] += 1
+            self.original_k[n] = int_n_c
 
-            random.shuffle(d_n)
-            self.d[n] = d_n
-        # d.shape = > (num_bags, num_instances)
-
-        self.change_p_label_rate = []
-
-        random.seed(0)
-        self.select_idx = np.ones(
-            (self.num_bags, self.num_instances), dtype=int)
-        # select_idx.shape => (num_bags, num_instances)
-
+        self.d = np.zeros((self.num_bags, self.num_instances), dtype=int)
         self.theta = np.zeros(
             (self.num_bags, self.num_instances, self.num_classes))
         self.cumulative_loss = np.zeros(
@@ -62,26 +51,11 @@ class FPL:
         model.eval()
         confidence_list = []
 
-        loss_list, acc_list = [], []
-        pred_list, feature_list = [], []
-
-        for data, label in loader:
-            (_, _, w, h, c) = data.size()
-            data = data.reshape(-1, w, h, c)
-            label = label.reshape(-1)
-
+        for data, label in tqdm(loader, leave=False):
             data, label = data.to(device), label.to(device)
-
-            # model.avgpool.register_forward_hook(store_feature)
             y = model(data)
             confidence = F.softmax(y, dim=1)
-
-            pred_list.extend(y.argmax(1).cpu().detach().numpy())
             confidence_list.extend(confidence.cpu().detach().numpy())
-            # feature_list.extend(feature.squeeze().cpu().detach().numpy())
-
-            loss_list.append(criterion(y, label).item())
-            acc_list.extend((y.argmax(1) == label).cpu().detach().numpy())
 
         confidence = np.array(confidence_list)
         confidence = confidence.reshape(
@@ -95,15 +69,7 @@ class FPL:
         else:
             print('Error: No loss function!')
 
-        loss = np.array(loss_list).mean()
-        acc = np.array(acc_list).mean()
-        pred = np.array(pred_list)
-
-        return loss, acc, pred
-
     def update_d(self):
-        d_tmp = self.d.copy()
-
         if self.is_online_prediction:
             perturbation = \
                 np.random.normal(0, self.sigma, self.cumulative_loss.shape)
@@ -120,9 +86,9 @@ class FPL:
         B = np.identity(self.num_classes)[B]
 
         print('seletcing pseudo label...')
-        for n in tqdm(range(self.num_bags)):
+        for n in tqdm(range(self.num_bags), leave=False):
             total_loss_n = total_loss[n].reshape(-1)
-            k_n = self.k[n]
+            k_n = self.original_k[n]
 
             # mip
             m = Model()
@@ -141,11 +107,15 @@ class FPL:
             m.optimize()
             d_n = np.array(d_n.astype(float)).reshape(
                 self.num_instances, self.num_classes)
-
             self.d[n] = d_n.argmax(1)
-            self.select_idx[n] = d_n.sum(axis=1)
 
-        self.change_p_label_rate.append((self.d != d_tmp).mean())
+            loss = total_loss[n][d_n.astype(bool)]
+            for c in range(self.num_classes):
+                c_index = np.where(self.d[n] == c)[0]
+                c_loss = loss[self.d[n] == c]
+                c_sorted_index = c_index[np.argsort(c_loss)]
+                c_not_used_index = c_sorted_index[self.k[n][c]:]
+                self.d[n][c_not_used_index] = -1
 
 
 def song_loss(confidence, label):
