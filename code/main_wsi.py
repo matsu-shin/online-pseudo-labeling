@@ -16,9 +16,10 @@ from PIL import Image
 import pickle
 import time
 import gc
+from sklearn.metrics import confusion_matrix
 
 from FPL_wsi import FPL
-from utils import fix_seed, make_folder, save_confusion_matrix
+from utils import Dataset, cal_OP_PC_mIoU, fix_seed, make_folder, save_confusion_matrix
 
 log = logging.getLogger(__name__)
 
@@ -38,26 +39,6 @@ class Dataset_theta(torch.utils.data.Dataset):
         data = self.data[idx]
         data = self.transform(data)
         return data
-
-
-class Dataset(torch.utils.data.Dataset):
-    def __init__(self, data, label):
-        self.data = data
-        self.label = label
-        self.transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.5071, 0.4865, 0.4409), (0.2673, 0.2564, 0.2762))])
-        self.len = self.data.shape[0]
-
-    def __len__(self):
-        return self.len
-
-    def __getitem__(self, idx):
-        data = self.data[idx]
-        data = self.transform(data)
-        label = self.label[idx]
-        label = torch.tensor(label).long()
-        return data, label
 
 
 class DatasetTrain(torch.utils.data.Dataset):
@@ -175,14 +156,6 @@ def main(cfg: DictConfig) -> None:
     # data = next(iter(train_loader_for_fpl))
     # print(data.size())
 
-    # define model, criterion and optimizer
-    fix_seed(cfg.seed)
-    model = resnet18(pretrained=cfg.is_pretrained)
-    model.fc = nn.Linear(model.fc.in_features, cfg.dataset.num_classes)
-    model = model.to(cfg.device)
-    loss_function = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
-
     # FPL
     fpl = FPL(num_instances_dict=num_instances_dict,
               proportion_dict=proportion_dict,
@@ -191,6 +164,17 @@ def main(cfg: DictConfig) -> None:
               loss_f=cfg.fpl.loss_f,
               pseudo_ratio=cfg.pseudo_ratio,
               is_online_prediction=cfg.fpl.is_online_prediction)
+
+    # define model, criterion and optimizer
+    fix_seed(cfg.seed)
+    model = resnet18(pretrained=cfg.is_pretrained)
+    model.fc = nn.Linear(model.fc.in_features, cfg.dataset.num_classes)
+    model = model.to(cfg.device)
+
+    weight = 1 / torch.tensor(list(fpl.k_dict.values())).float().sum(dim=0)
+    weight = weight.to(cfg.device)
+    loss_function = nn.CrossEntropyLoss(weight=weight)
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
     # make test_loader
     test_data = np.load(dataset_path+'test_data.npy')
@@ -290,10 +274,20 @@ def main(cfg: DictConfig) -> None:
         test_acces.append(test_acc)
 
         e_time = time.time()
-        log.info('[Epoch: %d/%d (%ds)] train_loss: %.4f, train_p_acc: %.4f, flip: %.4f, test_loss: %.4f, test_acc: %.4f' %
-                 (epoch+1, cfg.num_epochs, e_time-s_time, train_loss, train_p_acc, flip_p_label_ratio, test_loss, test_acc))
-        save_confusion_matrix(gt=test_gt, pred=test_pred,
-                              path=result_path+'cm.png', epoch=epoch+1)
+
+        train_cm = confusion_matrix(y_true=train_gt, y_pred=train_pred)
+        train_OP, train_PC, train_mIoU = cal_OP_PC_mIoU(train_cm)
+        save_confusion_matrix(cm=train_cm, path=result_path+'train_cm.png',
+                              title='acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (train_acc, train_OP, train_PC, train_mIoU))
+        test_cm = confusion_matrix(y_true=test_gt, y_pred=test_pred)
+        test_OP, test_PC, test_mIoU = cal_OP_PC_mIoU(test_cm)
+        save_confusion_matrix(cm=test_cm, path=result_path+'test_cm.png',
+                              title='acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (test_acc, test_OP, test_PC, test_mIoU))
+
+        print('[Epoch: %d/%d (%ds)] train loss: %.4f, acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f, test loss: %.4f, acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' %
+              (epoch+1, cfg.num_epochs, e_time-s_time,
+               train_loss, train_acc, train_OP, train_PC, train_mIoU,
+               test_loss, test_acc, test_OP, test_PC, test_mIoU))
 
         np.save(result_path+'train_acc', train_acces)
         np.save(result_path+'train_pseudo_acc', train_p_acces)
@@ -317,8 +311,10 @@ def main(cfg: DictConfig) -> None:
         if (epoch+1) % 10 == 0:
             torch.save(model.state_dict(), result_path +
                        'model_'+str(epoch+1)+'.pth')
-            save_confusion_matrix(gt=test_gt, pred=test_pred,
-                                  path=result_path+'cm_'+str(epoch+1)+'.png', epoch=epoch+1)
+            save_confusion_matrix(cm=train_cm, path=result_path+'train_cm_'+str(epoch+1)+'.png',
+                                  title='acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (train_acc, train_OP, train_PC, train_mIoU))
+            save_confusion_matrix(cm=test_cm, path=result_path+'test_cm_'+str(epoch+1)+'.png',
+                                  title='acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (test_acc, test_OP, test_PC, test_mIoU))
 
 
 if __name__ == '__main__':
