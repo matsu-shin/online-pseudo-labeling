@@ -1,4 +1,4 @@
-from cmath import nan
+from math import nan
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import logging
@@ -83,7 +83,7 @@ def debug_labeled(model, dataset_path, cfg):
     return train_acc
 
 
-@ hydra.main(config_path='../config', config_name='config')
+@ hydra.main(config_path='../config', config_name='config_wsi_fpl')
 def main(cfg: DictConfig) -> None:
     fix_seed(cfg.seed)
 

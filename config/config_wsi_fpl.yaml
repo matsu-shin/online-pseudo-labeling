@@ -1,0 +1,19 @@
+defaults:
+  - dataset: wsi
+
+result_path: /result/
+
+seed: 0
+lr: 0.001
+batch_size: 256
+num_workers: 2
+device: 'cuda:0'
+num_epochs: 100
+is_pretrained: True
+pseudo_ratio: 1.0
+
+fpl:
+  is_online_prediction: True
+  sigma: 1
+  eta: 1
+  loss_f: simple_confidence

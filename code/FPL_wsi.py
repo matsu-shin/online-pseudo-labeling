@@ -42,6 +42,18 @@ class FPL:
 
         random.seed(0)
         self.d_dict = {}
+        for idx, num_instances in num_instances_dict.items():
+            d_n = []
+            accum_n = 0
+            for c in range(self.num_classes-1):
+                n_c = int(num_instances * self.proportion_dict[idx][c])
+                accum_n += n_c
+                d_n.extend([c]*int(n_c))
+            n_c = int(num_instances-accum_n)
+            d_n.extend([self.num_classes-1]*int(n_c))
+
+            random.shuffle(d_n)
+            self.d_dict[idx] = d_n
 
         self.theta = {}
         self.cumulative_loss = {}
@@ -60,46 +72,24 @@ class FPL:
             confidence_list.extend(confidence.cpu().detach().numpy())
 
         confidence = np.array(confidence_list)
-        loss = 1-confidence
+
+        d = []
+        for idx, num_instances in num_instances_dict.items():
+            d.extend(self.d_dict[idx])
+        d = np.array(d)
+
+        if self.loss_f == 'song':
+            assert sum(d == -1) == 0, 'Do not use song loss'
+            loss = song_loss(confidence, d)
+        elif self.loss_f == 'simple_confidence':
+            loss = 1-confidence
+        else:
+            print('Error: No loss function!')
+
         x = 0
         for idx, num_instances in num_instances_dict.items():
             self.theta[idx] = loss[x: x+num_instances]
             x += num_instances
-
-    # def update_d(self, num_instances_dict):
-    #     for idx, num_instances in tqdm(num_instances_dict.items(), leave=False):
-    #         perturbation = np.random.normal(
-    #             0, self.sigma, (num_instances, self.num_classes))
-    #         self.cumulative_loss[idx] += self.theta[idx]
-    #         total_loss = self.cumulative_loss[idx] + self.eta*perturbation
-
-    #         A = np.repeat(np.arange(num_instances), self.num_classes)
-    #         A = np.identity(num_instances)[A]
-    #         B = np.tile(np.arange(self.num_classes), num_instances)
-    #         B = np.identity(self.num_classes)[B]
-
-    #         total_loss = total_loss.reshape(-1)
-    #         k = self.k_dict[idx]
-
-    #         m = Model()
-    #         d = m.add_var_tensor((num_instances*self.num_classes, ),
-    #                              'd', var_type=BINARY)
-    #         m.objective = minimize(
-    #             xsum(x*y for x, y in zip(total_loss, d)))
-    #         for i, a in enumerate(A.transpose()):
-    #             m += xsum(x*y for x, y in zip(a[i*self.num_classes: (i+1)*self.num_classes],
-    #                                           d[i*self.num_classes: (i+1)*self.num_classes])) <= 1
-    #         for i, b in enumerate(B.transpose()):
-    #             m += xsum(x*y for x, y in zip(b, d)) == k[i]
-
-    #         m.verbose = 0
-    #         # m.threads = -1
-    #         m.optimize()
-    #         d = np.array(d.astype(float)).reshape(
-    #             num_instances, self.num_classes)
-
-    #         self.d_dict[idx] = d.argmax(1)
-    #         self.d_dict[idx][d.sum(axis=1) != 1] = -1
 
     def update_d(self, num_instances_dict):
         for idx, num_instances in tqdm(num_instances_dict.items(), leave=False):
@@ -145,12 +135,7 @@ class FPL:
 
 
 def song_loss(confidence, label):
-    # confidence.shape => (num_bags, num_instances, num_classes)
-    # label => (num_bags, num_instances)
-    (num_bags, num_instances, num_classes) = confidence.shape
-    confidence = confidence.reshape(-1, num_classes)
-    label = label.reshape(-1)
-
+    num_classes = confidence.shape[-1]
     correct = np.ones(confidence.shape)
     pred = confidence.argmax(1)
     pred_one_hot = np.identity(num_classes)[pred]
@@ -158,15 +143,4 @@ def song_loss(confidence, label):
     correct[pred_one_hot != label_one_hot] = -1
 
     loss = ((1 - correct * confidence) / 2)
-    loss = loss.reshape(num_bags, num_instances, num_classes)
-
     return loss
-
-
-def simple_confidence_loss(confidence):
-    return 1-confidence
-
-
-def store_feature(module, input, output):
-    global feature
-    feature = output
