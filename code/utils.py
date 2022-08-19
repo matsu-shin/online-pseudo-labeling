@@ -92,19 +92,58 @@ def create_video_feature_space(cwd):
 
 
 def show_figure(cwd):
-    path = '0713/fpl_cifar10_True_10_1_simple_confidence_100_64_'
-    plt.plot(np.load(cwd+path+'train_pseudo_acc.npy'),
-             label='train_pseudo_acc')
-    plt.plot(np.load(cwd+path+'train_acc.npy'), label='train_acc')
-    plt.plot(np.load(cwd+path+'test_acc.npy'), label='test_acc')
-    plt.plot(np.load(cwd+path+'label_acc.npy'), label='label_acc')
 
-    plt.plot()
-    plt.legend()
+    # path = 'add_proportion_loss/fpl_cifar10_True_0.001_10_1_simple_confidence_100_64_0.01_1'
+    # plt.plot(np.load(cwd+path+'/test_acc.npy'),
+    #          label='proportion + 0.01 * ce (lr=0.001)')
+    # path = 'add_proportion_loss/fpl_cifar10_True_0.0001_10_1_simple_confidence_100_64_0.01_1'
+    # plt.plot(np.load(cwd+path+'/test_acc.npy'),
+    #          label='proportion + 0.01 * ce (lr=0.0001)')
+
+    # path = 'add_proportion_loss/fpl_cifar10_True_0.001_10_1_simple_confidence_100_64_0.1_1'
+    # plt.plot(np.load(cwd+path+'/test_acc.npy'),
+    #          label='proportion + 0.1 * ce (lr=0.001)')
+    # path = 'add_proportion_loss/fpl_cifar10_True_0.0001_10_1_simple_confidence_100_64_0.1_1'
+    # plt.plot(np.load(cwd+path+'/test_acc.npy'),
+    #          label='proportion + 0.1 * ce (lr=0.0001)')
+
+    # path = 'add_proportion_loss/fpl_cifar10_True_0.001_10_1_simple_confidence_100_64_1_1'
+    # plt.plot(np.load(cwd+path+'/test_acc.npy'),
+    #          label='proportion + ce (lr=0.001)')
+    # path = 'add_proportion_loss/fpl_cifar10_True_0.0001_10_1_simple_confidence_100_64_1_1'
+    # plt.plot(np.load(cwd+path+'/test_acc.npy'),
+    #          label='proportion + ce (lr=0.0001)')
+
+    # path = 'add_proportion_loss_mini30/fpl_cifar10_True_0.001_10_1_simple_confidence_100_64_1_0'
+    # plt.plot(np.load(cwd+path+'/test_acc.npy'), label='ce (lr=0.001)')
+
+    path = 'add_proportion_loss_mini30/fpl_cifar10_True_0.001_10_1_simple_confidence_100_64_0_1'
+    plt.plot(np.load(cwd+path+'/train_acc.npy'), label='proportion (lr=0.001)')
+    path = 'add_proportion_loss_mini30/fpl_cifar10_True_0.0001_10_1_simple_confidence_100_64_0_1'
+    plt.plot(np.load(cwd+path+'/train_acc.npy'),
+             label='proportion (lr=0.0001)')
+
+    # path = 'add_proportion_loss_mini8/fpl_cifar10_True_0.001_10_1_simple_confidence_100_64_0.1_1'
+    # plt.plot(np.load(cwd+path+'/label_acc.npy'),
+    #          label='proportion + 0.1 * ce  (lr=0.001)')
+    # path = 'add_proportion_loss_mini8/fpl_cifar10_True_0.001_10_1_simple_confidence_100_64_0.01_1'
+    # plt.plot(np.load(cwd+path+'/label_acc.npy'),
+    #          label='proportion + 0.01 * ce  (lr=0.001)')
+    # path = 'add_proportion_loss_mini8/fpl_cifar10_True_0.001_10_1_simple_confidence_100_64_1_1'
+    # plt.plot(np.load(cwd+path+'/label_acc.npy'),
+    #          label='proportion + ce (lr=0.001)')
+
+    # path = 'add_proportion_loss_mini8/fpl_cifar10_True_0.001_10_1_simple_confidence_100_64_1_0'
+    # plt.plot(np.load(cwd+path+'/label_acc.npy'), label='ce (lr=0.001)')
+    # path = 'debug/fpl_cifar10_True_0.0001_10_1_simple_confidence_100_64_1_0'
+    # plt.plot(np.load(cwd+path+'/label_acc.npy'), label='ce (lr=0.0001)')
+
+    plt.legend(bbox_to_anchor=(1, 0), loc='lower right',
+               borderaxespad=0, fontsize=7)
     plt.ylim(0, 1)
     plt.xlabel('epoch')
     plt.ylabel('acc')
-    plt.savefig(cwd+path+'acc.png')
+    plt.savefig(cwd+'add_proportion_loss_mini8/label_acc.png')
     plt.close()
 
 

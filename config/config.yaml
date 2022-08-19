@@ -7,7 +7,7 @@ result_path: /result/
 
 seed: 0
 lr: 0.001
-batch_size: 256
+batch_size: 512
 mini_batch: 8
 num_workers: 2
 device: 'cuda'

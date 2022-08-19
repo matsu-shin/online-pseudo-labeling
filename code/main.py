@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 
 from FPL import FPL
 from losses import ProportionLoss
-from train import TrainDataset, train
+from train import Dataset_theta, TrainDataset, TrainDataset_not_bag, train, train_not_bag
 from evaluate import TestDataset, evaluate
 from utils import fix_seed, make_folder, save_confusion_matrix
 from create_bags import create_bags, get_label_proportion
@@ -35,7 +35,7 @@ def main(cfg: DictConfig) -> None:
         result_path += 'fpl'
     else:
         result_path += 'not_op'
-    result_path += '_%s_%s_%s_%s_%s_%s_%s_%s_%s_%s' % (
+    result_path += '_%s_%s_%s_%s_%s_%s_%s_%s_%s_%s_%s' % (
         cfg.dataset.name,
         cfg.is_uni,
         cfg.lr,
@@ -45,7 +45,8 @@ def main(cfg: DictConfig) -> None:
         cfg.dataset.num_bags,
         cfg.dataset.num_instances,
         cfg.w_ce,
-        cfg.w_proportion)
+        cfg.w_proportion,
+        cfg.pseudo_ratio)
 
     # make folder
     make_folder(cwd+result_path)
@@ -109,19 +110,6 @@ def main(cfg: DictConfig) -> None:
         # bags_data.shape => (num_bags, num_instances, (image_size))
         # bags_label.shape => (num_bags, num_instances)
 
-    # N = cfg.dataset.img_size
-    # train_data = bags_data.reshape(-1, N, N, cfg.dataset.img_ch)
-    # train_label = bags_label.reshape(-1)
-    # train_data.shape => (num_bags*num_instances, (image_size))
-    # train_label.shape => (num_bags*num_instances)
-
-    # for test
-    # data, label = [], []
-    # for c in range(num_classes):
-    #     data.extend(test_data[test_label == c])
-    #     label.extend(test_label[test_label == c])
-    # test_data, test_label = np.array(data), np.array(label)
-    # print(test_data.shape, test_label.shape)
     test_dataset = TestDataset(test_data, test_label)
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=cfg.batch_size,
@@ -148,48 +136,63 @@ def main(cfg: DictConfig) -> None:
               sigma=cfg.fpl.sigma,
               eta=cfg.fpl.eta,
               loss_f=cfg.fpl.loss_f,
+              pseudo_ratio=cfg.pseudo_ratio,
               is_online_prediction=cfg.fpl.is_online_prediction)
 
     ce_loss_list, proportion_loss_list = [], []
     train_loss_list, train_acc_list = [], []
-    train_pseudo_loss_list, train_pseudo_acc_list = [], []
+    train_pseudo_acc_list = []
     pseudo_label_acc_list = []
     test_loss_list, test_acc_list = [], []
 
     fix_seed(cfg.seed)
     for epoch in range(cfg.num_epochs):
         # trained DNN: obtain f_t with d_t
-        train_dataset = TrainDataset(
-            bags_data, bags_label, fpl.d, label_proportion)
+
+        # train_dataset = TrainDataset(
+        #     bags_data, fpl.d, fpl.select_idx, label_proportion)
+        # train_loader = torch.utils.data.DataLoader(
+        #     train_dataset, batch_size=cfg.mini_batch,
+        #     shuffle=True,  num_workers=cfg.num_workers)
+        # ce_loss, proportion_loss = train(model=model,
+        #                                  ce_loss_f=ce_loss_f,
+        #                                  proportion_loss_f=proportion_loss_f,
+        #                                  optimizer=optimizer,
+        #                                  loader=train_loader,
+        #                                  cfg=cfg)
+        # print('[Epoch: %d/%d] ce loss:%.4f, proportion loss: %.4f' %
+        #       (epoch+1, cfg.num_epochs, ce_loss, proportion_loss))
+        # ce_loss_list.append(ce_loss)
+        # proportion_loss_list.append(proportion_loss)
+
+        (_, _, w, h, c) = bags_data.shape
+        train_dataset = TrainDataset_not_bag(
+            bags_data.reshape(-1, w, h, c)[fpl.select_idx.reshape(-1) == 1], fpl.d.reshape(-1)[fpl.select_idx.reshape(-1) == 1])
         train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=cfg.mini_batch,
+            train_dataset, batch_size=cfg.batch_size,
             shuffle=True,  num_workers=cfg.num_workers)
 
-        ce_loss, proportion_loss = train(model=model,
-                                         ce_loss_f=ce_loss_f,
-                                         proportion_loss_f=proportion_loss_f,
-                                         optimizer=optimizer,
-                                         loader=train_loader,
-                                         cfg=cfg)
-        print('[Epoch: %d/%d] ce loss:%.4f, proportion loss: %.4f' %
-              (epoch+1, cfg.num_epochs, ce_loss, proportion_loss))
-        ce_loss_list.append(ce_loss)
-        proportion_loss_list.append(proportion_loss)
+        train_not_bag(model=model,
+                      ce_loss_f=ce_loss_f,
+                      optimizer=optimizer,
+                      loader=train_loader,
+                      cfg=cfg)
 
         if cfg.w_ce != 0:
             # update the noise-risk vector theta_t
-            train_dataset = TrainDataset(
-                bags_data, bags_label, fpl.d, label_proportion)
+            train_dataset = Dataset_theta(bags_data, bags_label)
             train_loader = torch.utils.data.DataLoader(
                 train_dataset, batch_size=cfg.mini_batch,
                 shuffle=False,  num_workers=cfg.num_workers)
-            train_loss, pseudo_loss, train_acc, pseudo_acc, train_pred, feature = fpl.update_theta(model=model,
-                                                                                                   criterion=ce_loss_f,
-                                                                                                   loader=train_loader,
-                                                                                                   device=cfg.device)
+            train_loss, train_acc, train_pred = fpl.update_theta(model=model,
+                                                                 criterion=ce_loss_f,
+                                                                 loader=train_loader,
+                                                                 device=cfg.device)
             train_loss_list.append(train_loss)
-            train_pseudo_loss_list.append(pseudo_loss)
             train_acc_list.append(train_acc)
+
+            pseudo_acc = (fpl.d.reshape(-1) ==
+                          train_pred)[fpl.select_idx.reshape(-1) == 1].mean()
             train_pseudo_acc_list.append(pseudo_acc)
             # np.save('%s/%s/train_feature/%d' %
             #         (cwd, result_path, (epoch+1)), feature)
@@ -210,15 +213,16 @@ def main(cfg: DictConfig) -> None:
 
             print('[Epoch: %d/%d] train_loss: %.4f, train_acc: %.4f' %
                   (epoch+1, cfg.num_epochs, train_loss, train_acc))
-            print('[Epoch: %d/%d] train_pseudo_loss: %.4f, train_pseudo_acc: %.4f' %
-                  (epoch+1, cfg.num_epochs, pseudo_loss, pseudo_acc))
+            print('[Epoch: %d/%d] train_pseudo_acc: %.4f' %
+                  (epoch+1, cfg.num_epochs, pseudo_acc))
 
             # select the next k-set d_(t+1)
             fpl.update_d()
             pseudo_label_acc = (bags_label.reshape(-1) ==
-                                fpl.d.reshape(-1)).mean()
+                                fpl.d.reshape(-1))[fpl.select_idx.reshape(-1) == 1].mean()
             pseudo_label_acc_list.append(pseudo_label_acc)
             print('pseudo_label_acc: %.4f' % pseudo_label_acc)
+            print('change_p_label_rate: %.4f' % fpl.change_p_label_rate[-1])
             if (epoch+1) % 10 == 0:
                 save_confusion_matrix(
                     bags_label.reshape(-1), fpl.d.reshape(-1),
@@ -251,12 +255,12 @@ def main(cfg: DictConfig) -> None:
 
         np.save('%s/%s/train_loss' %
                 (cwd, result_path), np.array(train_loss_list))
-        np.save('%s/%s/train_pseudo_loss' %
-                (cwd, result_path), np.array(train_pseudo_loss_list))
         np.save('%s/%s/train_acc' %
                 (cwd, result_path), np.array(train_acc_list))
         np.save('%s/%s/train_pseudo_acc' %
                 (cwd, result_path), np.array(train_pseudo_acc_list))
+        np.save('%s/%s/change_p_label_rate' %
+                (cwd, result_path), np.array(fpl.change_p_label_rate))
 
         np.save('%s/%s/test_loss' %
                 (cwd, result_path), np.array(test_loss_list))
@@ -271,6 +275,7 @@ def main(cfg: DictConfig) -> None:
         plt.plot(train_acc_list, label='train_acc')
         plt.plot(test_acc_list, label='test_acc')
         plt.plot(pseudo_label_acc_list, label='label_acc')
+        plt.plot(fpl.change_p_label_rate, label='change_p_label_rate')
         plt.legend()
         plt.ylim(0, 1)
         plt.xlabel('epoch')
@@ -280,7 +285,6 @@ def main(cfg: DictConfig) -> None:
 
         plt.plot(ce_loss_list, label='ce_loss')
         plt.plot(proportion_loss_list, label='proportion_loss')
-        plt.plot(train_pseudo_loss_list, label='train_peseudo_loss')
         plt.plot(train_loss_list, label='train_loss')
         plt.plot(test_loss_list, label='test_loss')
         plt.legend()
