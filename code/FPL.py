@@ -41,7 +41,22 @@ class FPL:
                 int_n_c[idx] += 1
             self.original_k[n] = int_n_c
 
+        random.seed(0)
         self.d = np.zeros((self.num_bags, self.num_instances), dtype=int)
+        for n in range(num_bags):
+            d_n = []
+            accum_n = 0
+            for c in range(self.num_classes-1):
+                n_c = int(num_instances * label_proportion[n][c])
+                accum_n += n_c
+                d_n.extend([c]*int(n_c))
+            n_c = int(num_instances-accum_n)
+            d_n.extend([self.num_classes-1]*int(n_c))
+
+            random.shuffle(d_n)
+            self.d[n] = d_n
+        # d.shape = > (num_bags, num_instances)
+
         self.theta = np.zeros(
             (self.num_bags, self.num_instances, self.num_classes))
         self.cumulative_loss = np.zeros(
@@ -63,6 +78,7 @@ class FPL:
         # confidence.shape => (num_bags, num_instances, num_classes)
 
         if self.loss_f == 'song':
+            assert sum(self.d.reshape(-1) == -1) == 0, 'Do not use song loss'
             self.theta = song_loss(confidence, self.d)
         elif self.loss_f == 'simple_confidence':
             self.theta = simple_confidence_loss(confidence)
