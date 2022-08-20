@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
-from torchvision.models import resnet18
+from torchvision.models import resnet18, resnet50
 from tqdm import tqdm
 from matplotlib import pyplot as plt
 from glob import glob
@@ -170,7 +170,12 @@ def main(cfg: DictConfig) -> None:
 
     # define model, criterion and optimizer
     fix_seed(cfg.seed)
-    model = resnet18(pretrained=cfg.is_pretrained)
+    if cfg.model == 'resnet50':
+        model = resnet50(pretrained=cfg.is_pretrained)
+    elif cfg.model == 'resnet18':
+        model = resnet18(pretrained=cfg.is_pretrained)
+    else:
+        log.info('No model!')
     model.fc = nn.Linear(model.fc.in_features, cfg.dataset.num_classes)
     model = model.to(cfg.device)
 

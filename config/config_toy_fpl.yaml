@@ -3,6 +3,7 @@ defaults:
 
 result_path: /result/
 
+model: resnet50
 seed: 0
 lr: 0.001
 batch_size: 256

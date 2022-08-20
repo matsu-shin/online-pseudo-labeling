@@ -6,7 +6,7 @@ import logging
 import numpy as np
 import torch
 import torch.nn as nn
-from torchvision.models import resnet18
+from torchvision.models import resnet18, resnet50
 from tqdm import tqdm
 from matplotlib import pyplot as plt
 import time
@@ -96,7 +96,12 @@ def main(cfg: DictConfig) -> None:
 
     # define model
     fix_seed(cfg.seed)
-    model = resnet18(pretrained=cfg.is_pretrained)
+    if cfg.model == 'resnet50':
+        model = resnet50(pretrained=cfg.is_pretrained)
+    elif cfg.model == 'resnet18':
+        model = resnet18(pretrained=cfg.is_pretrained)
+    else:
+        log.info('No model!')
     model.fc = nn.Linear(model.fc.in_features, num_classes)
     model = model.to(cfg.device)
 

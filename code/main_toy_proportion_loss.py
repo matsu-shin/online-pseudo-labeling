@@ -6,12 +6,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.models import resnet18
+from torchvision.models import resnet18, resnet50
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 import torchvision.transforms as transforms
-from utils import Dataset, make_folder
+from utils import Dataset, fix_seed, make_folder
 from load_mnist import load_minist
 from load_cifar10 import load_cifar10
 from losses import ProportionLoss
@@ -117,7 +117,13 @@ def main(cfg: DictConfig) -> None:
         shuffle=True,  num_workers=cfg.num_workers)
 
     # define model
-    model = resnet18(pretrained=cfg.is_pretrained)
+    fix_seed(cfg.seed)
+    if cfg.model == 'resnet50':
+        model = resnet50(pretrained=cfg.is_pretrained)
+    elif cfg.model == 'resnet18':
+        model = resnet18(pretrained=cfg.is_pretrained)
+    else:
+        log.info('No model!')
     model.fc = nn.Linear(model.fc.in_features, num_classes)
     model = model.to(cfg.device)
 
