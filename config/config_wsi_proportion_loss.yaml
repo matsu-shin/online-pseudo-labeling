@@ -1,0 +1,17 @@
+defaults:
+  - dataset: wsi
+
+result_path: /result/
+
+model: resnet50
+seed: 0
+lr: 0.001
+batch_size: 64
+num_workers: 2
+device: 'cuda:0'
+num_epochs: 100
+is_pretrained: True
+
+proportion_metric: ce
+mini_batch: 4
+num_sampled_instances: 128
