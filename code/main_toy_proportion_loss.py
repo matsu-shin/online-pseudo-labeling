@@ -26,7 +26,7 @@ class DatasetBagSampling(torch.utils.data.Dataset):
         self.num_sampled_instances = num_sampled_instances
         self.transform = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+            transforms.Normalize((0.5071, 0.4865, 0.4409), (0.2673, 0.2564, 0.2762))])
         (self.n, self.b, self.w, self.h, self.c) = self.bags.shape
         self.len = self.n
 
@@ -58,6 +58,7 @@ def main(cfg: DictConfig) -> None:
     result_path += '%s' % str(cfg.dataset.name)
     result_path += '_samp_%s' % str(cfg.num_sampled_instances)
     result_path += '_mini_batch_%s' % str(cfg.mini_batch)
+    result_path += '_lr_%s' % str(cfg.lr)
     result_path += '/'
     make_folder(result_path)
 

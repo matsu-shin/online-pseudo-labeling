@@ -12,8 +12,9 @@ import matplotlib.pyplot as plt
 import pickle
 import time
 import gc
+from sklearn.metrics import confusion_matrix
 import torchvision.transforms as transforms
-from utils import Dataset, fix_seed, make_folder
+from utils import Dataset, fix_seed, make_folder, cal_OP_PC_mIoU, save_confusion_matrix
 from load_mnist import load_minist
 from load_cifar10 import load_cifar10
 from losses import ProportionLoss
@@ -28,7 +29,7 @@ class DatasetBagSampling(torch.utils.data.Dataset):
         self.num_sampled_instances = num_sampled_instances
         self.transform = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+            transforms.Normalize((0.5071, 0.4865, 0.4409), (0.2673, 0.2564, 0.2762))])
         self.len = len(self.bags)
 
     def __len__(self):
@@ -65,6 +66,7 @@ def main(cfg: DictConfig) -> None:
     result_path += '%s' % str(cfg.dataset.name)
     result_path += '_samp_%s' % str(cfg.num_sampled_instances)
     result_path += '_mini_batch_%s' % str(cfg.mini_batch)
+    result_path += '_lr_%s' % str(cfg.lr)
     result_path += '/'
     make_folder(result_path)
 
@@ -195,11 +197,18 @@ def main(cfg: DictConfig) -> None:
 
         e_time = time.time()
 
-        # print result
-        log.info('[Epoch: %d/%d (%ds)] train_loss: %.4f, test_acc: %.4f' %
-                 (epoch+1, cfg.num_epochs, e_time-s_time, train_loss, test_acc))
+        test_cm = confusion_matrix(y_true=test_gt, y_pred=test_pred)
+        test_OP, test_PC, test_mIoU = cal_OP_PC_mIoU(test_cm)
+        save_confusion_matrix(cm=test_cm, path=result_path+'test_cm.png',
+                              title='acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (test_acc, test_OP, test_PC, test_mIoU))
+
+        log.info('[Epoch: %d/%d (%ds)] train loss: %.4f, test acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' %
+                 (epoch+1, cfg.num_epochs, e_time-s_time,
+                  train_loss, test_acc, test_OP, test_PC, test_mIoU))
 
         np.save(result_path+'test_acc', test_acces)
+        torch.save(model.state_dict(), result_path +
+                   'model_'+str(epoch+1)+'.pth')
         plt.plot(test_acces, label='test_acc')
         plt.legend()
         plt.ylim(0, 1)
@@ -207,6 +216,10 @@ def main(cfg: DictConfig) -> None:
         plt.ylabel('acc')
         plt.savefig(result_path+'acc.png')
         plt.close()
+
+        if (epoch+1) % 10 == 0:
+            torch.save(model.state_dict(), result_path +
+                       'model_'+str(epoch+1)+'.pth')
 
 
 if __name__ == '__main__':

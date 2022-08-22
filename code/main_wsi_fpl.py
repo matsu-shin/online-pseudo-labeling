@@ -91,11 +91,12 @@ def main(cfg: DictConfig) -> None:
     # file name
     cwd = hydra.utils.get_original_cwd()
     result_path = cwd + cfg.result_path
-    result_path += 'wsi/'
+    result_path += 'wsi_fpl/'
     make_folder(result_path)
     if cfg.fpl.is_online_prediction == False:
         result_path += 'not_op_'
-    result_path += 'eta_%s' % str(cfg.fpl.eta)
+    result_path += '%s' % (cfg.fpl.loss_f)
+    result_path += '_eta_%s' % str(cfg.fpl.eta)
     result_path += '_pseudo_ratio_%s' % str(cfg.pseudo_ratio)
     result_path += '/'
     make_folder(result_path)
@@ -116,9 +117,9 @@ def main(cfg: DictConfig) -> None:
 
     # with open(dataset_path+"image_name_dict.pkl", "rb") as tf:
     #     image_name_dict = pickle.load(tf)
-    with open(dataset_path+"proportion_dict.pkl", "rb") as tf:
+    with open(dataset_path+"proportion_dict_10.pkl", "rb") as tf:
         proportion_dict = pickle.load(tf)
-    with open(dataset_path+"train_bag_data.pkl", "rb") as tf:
+    with open(dataset_path+"train_bag_data_10.pkl", "rb") as tf:
         train_bag_data = pickle.load(tf)
 
     unlabeled_idx = list(proportion_dict.keys())
@@ -292,10 +293,10 @@ def main(cfg: DictConfig) -> None:
         save_confusion_matrix(cm=test_cm, path=result_path+'test_cm.png',
                               title='acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (test_acc, test_OP, test_PC, test_mIoU))
 
-        print('[Epoch: %d/%d (%ds)] train loss: %.4f, acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f, test loss: %.4f, acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' %
-              (epoch+1, cfg.num_epochs, e_time-s_time,
-               train_loss, train_acc, train_OP, train_PC, train_mIoU,
-               test_loss, test_acc, test_OP, test_PC, test_mIoU))
+        log.info('[Epoch: %d/%d (%ds)] train loss: %.4f, acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f, test loss: %.4f, acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' %
+                 (epoch+1, cfg.num_epochs, e_time-s_time,
+                  train_loss, train_acc, train_OP, train_PC, train_mIoU,
+                  test_loss, test_acc, test_OP, test_PC, test_mIoU))
 
         np.save(result_path+'train_acc', train_acces)
         np.save(result_path+'train_pseudo_acc', train_p_acces)
@@ -316,9 +317,9 @@ def main(cfg: DictConfig) -> None:
         plt.close()
 
         # save
+        torch.save(model.state_dict(), result_path +
+                   'model_'+str(epoch+1)+'.pth')
         if (epoch+1) % 10 == 0:
-            torch.save(model.state_dict(), result_path +
-                       'model_'+str(epoch+1)+'.pth')
             save_confusion_matrix(cm=train_cm, path=result_path+'train_cm_'+str(epoch+1)+'.png',
                                   title='acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (train_acc, train_OP, train_PC, train_mIoU))
             save_confusion_matrix(cm=test_cm, path=result_path+'test_cm_'+str(epoch+1)+'.png',

@@ -222,7 +222,8 @@ def main(cfg: DictConfig) -> None:
 
         # save
         np.save(result_path+'test_acc', np.array(test_acc_list))
-        torch.save(model.state_dict(), result_path+'model.pth')
+        torch.save(model.state_dict(), result_path +
+                   'model_'+str(epoch+1)+'.pth')
 
         plt.plot(train_pseudo_acc_list, label='train_pseudo_acc')
         plt.plot(train_acc_list, label='train_acc')
