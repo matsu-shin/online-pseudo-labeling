@@ -20,9 +20,11 @@ log = logging.getLogger(__name__)
 
 
 class DatasetBagSampling(torch.utils.data.Dataset):
-    def __init__(self, bags, label_proportions, num_sampled_instances):
+    def __init__(self, bags, labels, label_proportions, num_sampled_instances):
         self.bags = bags
+        self.labels = labels
         self.label_proportions = label_proportions
+        self.num_classes = (self.labels).max()+1
         self.num_sampled_instances = num_sampled_instances
         self.transform = transforms.Compose([
             transforms.ToTensor(),
@@ -38,13 +40,15 @@ class DatasetBagSampling(torch.utils.data.Dataset):
         sampled_index = np.random.choice(index, self.num_sampled_instances)
 
         bag = torch.zeros((self.num_sampled_instances, self.c, self.w, self.h))
+        label = torch.zeros(self.num_sampled_instances)
         for i, j in enumerate(sampled_index):
             bag[i] = self.transform(self.bags[idx][j])
+            label[i] = self.labels[idx][j]
 
         label_proportion = self.label_proportions[idx]
         label_proportion = torch.tensor(label_proportion).float()
 
-        return bag, label_proportion
+        return bag, label, label_proportion
 
 
 @ hydra.main(config_path='../config', config_name='config_toy_proportion_loss')
@@ -86,36 +90,47 @@ def main(cfg: DictConfig) -> None:
     num_bags = bags_index.shape[0]
     num_instances = bags_index.shape[1]
 
-    bags_data, bags_label = train_data[bags_index], train_label[bags_index]
-    label_proportion = np.zeros((num_bags, num_classes))
-    for n in range(num_bags):
-        bag_one_hot_label = np.identity(num_classes)[bags_label[n]]
-        label_proportion[n] = bag_one_hot_label.sum(axis=0)/num_instances
+    if cfg.validation>0:
+        n_val = int(bags_index.shape[0]*cfg.validation)
+        val_bags_index = bags_index[: n_val]
+        bags_index = bags_index[n_val: ]
 
-    N = cfg.dataset.img_size
-    train_data = bags_data.reshape(-1, N, N, cfg.dataset.img_ch)
-    train_label = bags_label.reshape(-1)
-    # train_data.shape => (num_bags*num_instances, (image_size))
-    # train_label.shape => (num_bags*num_instances)
+        bags_data, bags_label = train_data[val_bags_index], train_label[val_bags_index]
+        label_proportion = np.identity(num_classes)[bags_label].mean(axis=1)
+        val_dataset = DatasetBagSampling(
+            bags_data, bags_label, label_proportion,
+            num_sampled_instances=cfg.num_sampled_instances)
+        val_loader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=cfg.mini_batch,
+            shuffle=False,  num_workers=cfg.num_workers)
+
+    # for train
+    bags_data, bags_label = train_data[bags_index], train_label[bags_index]
+    label_proportion = np.identity(num_classes)[bags_label].mean(axis=1)
+    train_dataset = DatasetBagSampling(
+        bags_data, bags_label, label_proportion,
+        num_sampled_instances=cfg.num_sampled_instances)
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=cfg.mini_batch,
+        shuffle=True,  num_workers=cfg.num_workers)
 
     # for test
-    data, label = [], []
-    for c in range(num_classes):
-        data.extend(test_data[test_label == c])
-        label.extend(test_label[test_label == c])
-    test_data, test_label = np.array(data), np.array(label)
-    print(test_data.shape, test_label.shape)
+    # data, label = [], []
+    # for c in range(num_classes):
+    #     data.extend(test_data[test_label == c])
+    #     label.extend(test_label[test_label == c])
+    # test_data, test_label = np.array(data), np.array(label)
+    # print(test_data.shape, test_label.shape)
+
     test_dataset = Dataset(test_data, test_label)
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=cfg.batch_size,
         shuffle=False,  num_workers=cfg.num_workers)
 
-    train_dataset = DatasetBagSampling(
-        bags_data, label_proportion,
-        num_sampled_instances=cfg.num_sampled_instances)
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=cfg.mini_batch,
-        shuffle=True,  num_workers=cfg.num_workers)
+    
+    # (_, _, c, w, h) = bags_data.shape
+    # train_data = bags_data.reshape(-1, w, h, c)
+    # train_label = bags_label.reshape(-1)
 
     # define model
     fix_seed(cfg.seed)
@@ -143,18 +158,22 @@ def main(cfg: DictConfig) -> None:
         
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
-    test_acces = []
+    train_acces, val_acces, test_acces = [], [], []
+    train_losses, val_losses = [], []
+    best_validation_loss = np.inf
+    final_acc = 0
     for epoch in range(cfg.num_epochs):
-
         # train
         model.train()
-        train_losses = []
-        for iter, (data, proportion) in enumerate(tqdm(train_loader, leave=False)):
-            data = data.to(cfg.device)
+        losses = []
+        gt, pred = [], []
+        for iteration, (data, label, proportion) in enumerate(tqdm(train_loader, leave=False)):
+            data, label = data.to(cfg.device), label.to(cfg.device)
             proportion = proportion.to(cfg.device)
 
             (n, b, w, h, c) = data.size()
             data = data.reshape(-1, w, h, c)
+            label = label.reshape(-1)
 
             if cfg.consistency == "vat":
                 # VAT should be calculated before the forward for cross entropy
@@ -163,41 +182,82 @@ def main(cfg: DictConfig) -> None:
                 consistency_loss, _ = consistency_criterion(model, data)
             else:
                 consistency_loss = torch.tensor(0.)
-            alpha = get_rampup_weight(0.05, iter, -1)
+            alpha = get_rampup_weight(0.05, iteration, -1)
             consistency_loss = alpha * consistency_loss
 
             y = model(data)
             confidence = F.softmax(y, dim=1)
             confidence = confidence.reshape(n, b, -1).mean(dim=1)
             prop_loss = loss_function(confidence, proportion)
-
             loss = prop_loss + consistency_loss
 
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
 
-            train_losses.append(loss.item())
+            gt.extend(label.cpu().detach().numpy())
+            pred.extend(y.argmax(1).cpu().detach().numpy())
+            losses.append(loss.item())
 
-        train_loss = np.array(train_losses).mean()
+        train_loss = np.array(losses).mean()
+        train_acc = (np.array(gt)==np.array(pred)).mean()
+        train_losses.append(train_loss)
+        train_acces.append(train_acc)
+        log.info('[Epoch: %d/%d] train_loss: %.4f, train_acc: %.4f' %(epoch+1, cfg.num_epochs, train_loss, train_acc))
+
+        # validation
+        if cfg.validation>0:
+            model.eval()
+            losses = []
+            gt, pred = [], []
+            for data, label, proportion in tqdm(val_loader, leave=False):
+                data, label = data.to(cfg.device), label.to(cfg.device)
+                proportion = proportion.to(cfg.device)
+
+                (n, b, w, h, c) = data.size()
+                data = data.reshape(-1, w, h, c)
+                label = label.reshape(-1)
+
+                y = model(data)
+                confidence = F.softmax(y, dim=1)
+                confidence = confidence.reshape(n, b, -1).mean(dim=1)
+                loss = loss_function(confidence, proportion)
+
+                gt.extend(label.cpu().detach().numpy())
+                pred.extend(y.argmax(1).cpu().detach().numpy())
+                losses.append(loss.item())
+
+            val_loss = np.array(losses).mean()
+            val_acc = (np.array(gt)==np.array(pred)).mean()
+            val_losses.append(val_loss)
+            val_acces.append(val_acc)
+            log.info('[Epoch: %d/%d] val_loss: %.4f, val_acc: %.4f' %(epoch+1, cfg.num_epochs, val_loss, val_acc))
 
         # test
         model.eval()
-        test_gt, test_pred = [], []
+        gt, pred = [], []
         for data, label in tqdm(test_loader, leave=False):
             data, label = data.to(cfg.device), label.to(cfg.device)
             y = model(data)
-            test_gt.extend(label.cpu().detach().numpy())
-            test_pred.extend(y.argmax(1).cpu().detach().numpy())
-        test_gt, test_pred = np.array(test_gt), np.array(test_pred)
-        test_acc = np.array(test_gt == test_pred).mean()
+            gt.extend(label.cpu().detach().numpy())
+            pred.extend(y.argmax(1).cpu().detach().numpy())
+        test_acc = (np.array(gt)==np.array(pred)).mean()
         test_acces.append(test_acc)
 
-        # print result
-        log.info('[Epoch: %d/%d] train_loss: %.4f, test_acc: %.4f' %
-                 (epoch+1, cfg.num_epochs, train_loss, test_acc))
+        log.info('[Epoch: %d/%d] test_acc: %.4f' %(epoch+1, cfg.num_epochs, test_acc))
+        log.info('--------------------------------------------------')
 
+        if cfg.validation>0:
+            if val_loss < best_validation_loss:
+                torch.save(model.state_dict(), result_path + 'best_model.pth')
+                best_validation_loss = val_loss
+                final_acc = test_acc
+
+        np.save(result_path+'train_acc', train_acces)
+        np.save(result_path+'val_acc', val_acces)
         np.save(result_path+'test_acc', test_acces)
+        plt.plot(train_acces, label='train_acc')
+        plt.plot(val_acces, label='val_acc')
         plt.plot(test_acces, label='test_acc')
         plt.legend()
         plt.ylim(0, 1)
@@ -205,6 +265,20 @@ def main(cfg: DictConfig) -> None:
         plt.ylabel('acc')
         plt.savefig(result_path+'acc.png')
         plt.close()
+        
+        np.save(result_path+'train_loss', train_losses)
+        np.save(result_path+'val_loss', val_losses)
+        plt.plot(train_losses, label='train_loss')
+        plt.plot(val_losses, label='val_loss')
+        plt.legend()
+        plt.xlabel('epoch')
+        plt.ylabel('loss')
+        plt.savefig(result_path+'loss.png')
+        plt.close()
+    
+    log.info(OmegaConf.to_yaml(cfg))
+    log.info('final_acc: %.4f' %(final_acc))
+    log.info('--------------------------------------------------')
 
 
 if __name__ == '__main__':

@@ -6,11 +6,12 @@ result_path: /result/
 model: resnet50
 seed: 0
 lr: 3e-4
-batch_size: 64
+batch_size: 256
 num_workers: 2
 device: 'cuda:0'
 num_epochs: 400
 is_pretrained: True
+validation: 0.2
 
 proportion_metric: ce
 mini_batch: 4
