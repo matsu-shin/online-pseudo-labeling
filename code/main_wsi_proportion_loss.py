@@ -158,28 +158,36 @@ def main(cfg: DictConfig) -> None:
         # train
         model.train()
         train_losses = []
-        flag_optim = 0
-        for data, proportion in tqdm(train_loader, leave=False):
-            data = data.to(cfg.device)
-            proportion = proportion.to(cfg.device)
 
-            (n, b, w, h, c) = data.size()
-            data = data.reshape(-1, w, h, c)
+        b_list = [0]
+        mb_data, mb_proportion = [], []
+        for iter, (data, proportion) in enumerate(tqdm(train_loader, leave=False)):
+            data = data[0]
+            b_list.append(b_list[-1]+data.size(0))
+            mb_data.extend(data)
+            mb_proportion.extend(proportion)
 
-            y = model(data)
-            confidence = F.softmax(y, dim=1)
-            confidence = confidence.reshape(n, b, -1).mean(dim=1)
+            if (iter+1)%cfg.mini_batch==0 or (iter + 1)==len(train_loader):
+                mb_data = torch.stack(mb_data)
+                mb_proportion = torch.stack(mb_proportion)
+                mb_data = mb_data.to(cfg.device)
+                mb_proportion = mb_proportion.to(cfg.device)
 
-            loss = loss_function(confidence, proportion) / cfg.mini_batch
-            loss.backward()
+                y = model(mb_data)
+                confidence = F.softmax(y, dim=1)
+                pred = torch.zeros(mb_proportion.size(0), cfg.dataset.num_classes).to(cfg.device)
+                for n in range(mb_proportion.size(0)):
+                    pred[n] = torch.mean(confidence[b_list[n]: b_list[n+1]], dim=0)
+                loss = loss_function(pred, mb_proportion)
 
-            flag_optim += 1
-            if flag_optim == cfg.mini_batch:
+                loss.backward()
                 optimizer.step()
                 optimizer.zero_grad()
-                flag_optim = 0
 
-            train_losses.append(loss.item())
+                b_list = [0]
+                mb_data, mb_proportion = [], []
+
+                train_losses.append(loss.item())
 
         train_loss = np.array(train_losses).mean()
 
