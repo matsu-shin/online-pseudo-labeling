@@ -14,10 +14,10 @@ import time
 import gc
 from sklearn.metrics import confusion_matrix
 import torchvision.transforms as transforms
-from utils import Dataset, fix_seed, make_folder, cal_OP_PC_mIoU, save_confusion_matrix
+from utils import Dataset, fix_seed, make_folder, get_rampup_weight, cal_OP_PC_mIoU, save_confusion_matrix
 from load_mnist import load_minist
 from load_cifar10 import load_cifar10
-from losses import ProportionLoss
+from losses import PiModelLoss, ProportionLoss, VATLoss
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +63,8 @@ def main(cfg: DictConfig) -> None:
     result_path = cwd + cfg.result_path
     result_path += 'wsi_proportion_loss/'
     make_folder(result_path)
-    result_path += '%s' % str(cfg.dataset.name)
+    if cfg.consistency != 'none':
+        result_path += cfg.consistency
     result_path += '_samp_%s' % str(cfg.num_sampled_instances)
     result_path += '_mini_batch_%s' % str(cfg.mini_batch)
     result_path += '_lr_%s' % str(cfg.lr)
@@ -122,6 +123,15 @@ def main(cfg: DictConfig) -> None:
     loss_function = ProportionLoss(
         metric=cfg.proportion_metric
     )
+    if cfg.consistency == 'none':
+        consistency_criterion = None
+    elif cfg.consistency == 'vat':
+        consistency_criterion = VATLoss()
+    elif cfg.consistency == 'pi':
+        consistency_criterion = PiModelLoss()
+    else:
+        raise NameError('Unknown consistency criterion')
+
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
     # make train_loader
@@ -173,12 +183,24 @@ def main(cfg: DictConfig) -> None:
                 mb_data = mb_data.to(cfg.device)
                 mb_proportion = mb_proportion.to(cfg.device)
 
+                if cfg.consistency == "vat":
+                    # VAT should be calculated before the forward for cross entropy
+                    consistency_loss = consistency_criterion(model, mb_data)
+                elif cfg.consistency == "pi":
+                    consistency_loss, _ = consistency_criterion(model, mb_data)
+                else:
+                    consistency_loss = torch.tensor(0.)
+                alpha = get_rampup_weight(0.05, iter, -1)
+                consistency_loss = alpha * consistency_loss
+
                 y = model(mb_data)
                 confidence = F.softmax(y, dim=1)
                 pred = torch.zeros(mb_proportion.size(0), cfg.dataset.num_classes).to(cfg.device)
                 for n in range(mb_proportion.size(0)):
                     pred[n] = torch.mean(confidence[b_list[n]: b_list[n+1]], dim=0)
-                loss = loss_function(pred, mb_proportion)
+                prop_loss = loss_function(pred, mb_proportion)
+
+                loss = prop_loss + consistency_loss
 
                 loss.backward()
                 optimizer.step()
