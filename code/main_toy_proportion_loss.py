@@ -11,10 +11,10 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 import torchvision.transforms as transforms
-from utils import Dataset, fix_seed, make_folder
+from utils import Dataset, fix_seed, get_rampup_weight, make_folder
 from load_mnist import load_minist
 from load_cifar10 import load_cifar10
-from losses import ProportionLoss
+from losses import PiModelLoss, ProportionLoss, VATLoss
 
 log = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ def main(cfg: DictConfig) -> None:
             )
 
     dataset_path = cwd + '/obj/%s/bias-1024-index.npy' % (cfg.dataset.name)
-    print('loading...  '+dataset_path)
+    log.info('loading...  '+dataset_path)
     bags_index = np.load(dataset_path)
     num_classes = cfg.dataset.num_classes
     num_bags = bags_index.shape[0]
@@ -132,6 +132,15 @@ def main(cfg: DictConfig) -> None:
     loss_function = ProportionLoss(
         metric=cfg.proportion_metric
     )
+    if cfg.consistency == 'none':
+        consistency_criterion = None
+    elif cfg.consistency == 'vat':
+        consistency_criterion = VATLoss()
+    elif cfg.consistency == 'pi':
+        consistency_criterion = PiModelLoss()
+    else:
+        raise NameError('Unknown consistency criterion')
+        
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
     test_acces = []
@@ -140,18 +149,30 @@ def main(cfg: DictConfig) -> None:
         # train
         model.train()
         train_losses = []
-        for data, proportion in tqdm(train_loader, leave=False):
+        for iter, (data, proportion) in enumerate(tqdm(train_loader, leave=False)):
             data = data.to(cfg.device)
             proportion = proportion.to(cfg.device)
 
             (n, b, w, h, c) = data.size()
             data = data.reshape(-1, w, h, c)
 
+            if cfg.consistency == "vat":
+                # VAT should be calculated before the forward for cross entropy
+                consistency_loss = consistency_criterion(model, data)
+            elif cfg.consistency == "pi":
+                consistency_loss, _ = consistency_criterion(model, data)
+            else:
+                consistency_loss = torch.tensor(0.)
+            alpha = get_rampup_weight(0.05, iter, -1)
+            consistency_loss = alpha * consistency_loss
+
             y = model(data)
             confidence = F.softmax(y, dim=1)
             confidence = confidence.reshape(n, b, -1).mean(dim=1)
+            prop_loss = loss_function(confidence, proportion)
 
-            loss = loss_function(confidence, proportion)
+            loss = prop_loss + consistency_loss
+
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
