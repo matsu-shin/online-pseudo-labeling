@@ -87,8 +87,6 @@ def main(cfg: DictConfig) -> None:
     log.info('loading...  '+dataset_path)
     bags_index = np.load(dataset_path)
     num_classes = cfg.dataset.num_classes
-    num_bags = bags_index.shape[0]
-    num_instances = bags_index.shape[1]
 
     if cfg.validation>0:
         n_val = int(bags_index.shape[0]*cfg.validation)
@@ -114,23 +112,10 @@ def main(cfg: DictConfig) -> None:
         train_dataset, batch_size=cfg.mini_batch,
         shuffle=True,  num_workers=cfg.num_workers)
 
-    # for test
-    # data, label = [], []
-    # for c in range(num_classes):
-    #     data.extend(test_data[test_label == c])
-    #     label.extend(test_label[test_label == c])
-    # test_data, test_label = np.array(data), np.array(label)
-    # print(test_data.shape, test_label.shape)
-
     test_dataset = Dataset(test_data, test_label)
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=cfg.batch_size,
         shuffle=False,  num_workers=cfg.num_workers)
-
-    
-    # (_, _, c, w, h) = bags_data.shape
-    # train_data = bags_data.reshape(-1, w, h, c)
-    # train_label = bags_label.reshape(-1)
 
     # define model
     fix_seed(cfg.seed)
