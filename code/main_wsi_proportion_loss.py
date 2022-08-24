@@ -333,9 +333,9 @@ def main(cfg: DictConfig) -> None:
         if val_loss < best_validation_loss:
             torch.save(model.state_dict(), result_path + 'best_model.pth')
 
-            save_confusion_matrix(cm=train_cm, path=result_path+'train_cm.png',
+            save_confusion_matrix(cm=train_cm, path=result_path+'cm_train.png',
                                   title='epoch: %d, acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (epoch+1, train_acc, train_OP, train_PC, train_mIoU))
-            save_confusion_matrix(cm=test_cm, path=result_path+'test_cm.png',
+            save_confusion_matrix(cm=test_cm, path=result_path+'cm_test.png',
                                   title='epoch: %d, acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (epoch+1, test_acc, test_OP, test_PC, test_mIoU))
 
             best_validation_loss = val_loss
@@ -359,7 +359,7 @@ def main(cfg: DictConfig) -> None:
         plt.ylim(0, 1)
         plt.xlabel('epoch')
         plt.ylabel('acc')
-        plt.savefig(result_path+'acc.png')
+        plt.savefig(result_path+'curve_acc.png')
         plt.close()
 
         np.save(result_path+'train_loss', train_losses)
@@ -369,7 +369,7 @@ def main(cfg: DictConfig) -> None:
         plt.legend()
         plt.xlabel('epoch')
         plt.ylabel('loss')
-        plt.savefig(result_path+'loss.png')
+        plt.savefig(result_path+'curve_loss.png')
         plt.close()
 
     log.info(OmegaConf.to_yaml(cfg))
