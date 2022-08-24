@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 def cross_entropy_loss(input, target, eps=1e-8):
     # input = torch.clamp(input, eps, 1 - eps)
-    loss = -target * torch.log(input)
+    loss = -target * torch.log(input+eps)
     return loss
 
 
@@ -30,6 +30,7 @@ class ProportionLoss(nn.Module):
         loss = torch.sum(loss, dim=-1).mean()
         return loss
 
+
 @contextlib.contextmanager
 def _disable_tracking_bn_stats(model):
     def switch_attr(m):
@@ -45,6 +46,7 @@ def _l2_normalize(d):
     d_reshaped = d.view(d.shape[0], -1, *(1 for _ in range(d.dim() - 2)))
     d /= torch.norm(d_reshaped, dim=1, keepdim=True) + 1e-8
     return d
+
 
 class VATLoss(nn.Module):
     def __init__(self, xi=10.0, eps=1.0, ip=1):
@@ -86,8 +88,10 @@ class VATLoss(nn.Module):
 
         return lds
 
+
 class GaussianNoise(nn.Module):
     """ add gasussian noise into feature """
+
     def __init__(self, std):
         super(GaussianNoise, self).__init__()
         self.std = std
@@ -96,6 +100,7 @@ class GaussianNoise(nn.Module):
         zeros_ = torch.zeros_like(x)
         n = torch.normal(zeros_, std=self.std)
         return x + n
+
 
 class PiModelLoss(nn.Module):
     def __init__(self, std=0.15):
