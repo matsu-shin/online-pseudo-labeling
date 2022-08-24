@@ -9,9 +9,10 @@ import torch.nn.functional as F
 from torchvision.models import resnet18, resnet50
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix
 
 import torchvision.transforms as transforms
-from utils import Dataset, fix_seed, get_rampup_weight, make_folder
+from utils import Dataset, fix_seed, get_rampup_weight, make_folder, save_confusion_matrix
 from load_mnist import load_minist
 from load_cifar10 import load_cifar10
 from losses import PiModelLoss, ProportionLoss, VATLoss
@@ -59,6 +60,8 @@ def main(cfg: DictConfig) -> None:
     result_path = cwd + cfg.result_path
     result_path += 'toy_proportion_loss/'
     make_folder(result_path)
+    if cfg.consistency != 'none':
+        result_path += cfg.consistency
     result_path += '%s' % str(cfg.dataset.name)
     result_path += '_samp_%s' % str(cfg.num_sampled_instances)
     result_path += '_mini_batch_%s' % str(cfg.mini_batch)
@@ -88,19 +91,19 @@ def main(cfg: DictConfig) -> None:
     bags_index = np.load(dataset_path)
     num_classes = cfg.dataset.num_classes
 
-    if cfg.validation>0:
-        n_val = int(bags_index.shape[0]*cfg.validation)
-        val_bags_index = bags_index[: n_val]
-        bags_index = bags_index[n_val: ]
+    # for validation
+    n_val = int(bags_index.shape[0]*cfg.validation)
+    val_bags_index = bags_index[: n_val]
+    bags_index = bags_index[n_val:]
 
-        bags_data, bags_label = train_data[val_bags_index], train_label[val_bags_index]
-        label_proportion = np.identity(num_classes)[bags_label].mean(axis=1)
-        val_dataset = DatasetBagSampling(
-            bags_data, bags_label, label_proportion,
-            num_sampled_instances=cfg.num_sampled_instances)
-        val_loader = torch.utils.data.DataLoader(
-            val_dataset, batch_size=cfg.mini_batch,
-            shuffle=False,  num_workers=cfg.num_workers)
+    bags_data, bags_label = train_data[val_bags_index], train_label[val_bags_index]
+    label_proportion = np.identity(num_classes)[bags_label].mean(axis=1)
+    val_dataset = DatasetBagSampling(
+        bags_data, bags_label, label_proportion,
+        num_sampled_instances=cfg.num_sampled_instances)
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset, batch_size=cfg.mini_batch,
+        shuffle=False,  num_workers=cfg.num_workers)
 
     # for train
     bags_data, bags_label = train_data[bags_index], train_label[bags_index]
@@ -140,7 +143,7 @@ def main(cfg: DictConfig) -> None:
         consistency_criterion = PiModelLoss()
     else:
         raise NameError('Unknown consistency criterion')
-        
+
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
     train_acces, val_acces, test_acces = [], [], []
@@ -185,16 +188,18 @@ def main(cfg: DictConfig) -> None:
             losses.append(loss.item())
 
         train_loss = np.array(losses).mean()
-        train_acc = (np.array(gt)==np.array(pred)).mean()
+        train_acc = (np.array(gt) == np.array(pred)).mean()
         train_losses.append(train_loss)
         train_acces.append(train_acc)
-        log.info('[Epoch: %d/%d] train_loss: %.4f, train_acc: %.4f' %(epoch+1, cfg.num_epochs, train_loss, train_acc))
+        train_cm = confusion_matrix(y_true=gt, y_pred=pred)
+        log.info('[Epoch: %d/%d] train_loss: %.4f, train_acc: %.4f' %
+                 (epoch+1, cfg.num_epochs, train_loss, train_acc))
 
         # validation
-        if cfg.validation>0:
-            model.eval()
-            losses = []
-            gt, pred = [], []
+        model.eval()
+        losses = []
+        gt, pred = [], []
+        with torch.no_grad():
             for data, label, proportion in tqdm(val_loader, leave=False):
                 data, label = data.to(cfg.device), label.to(cfg.device)
                 proportion = proportion.to(cfg.device)
@@ -212,31 +217,39 @@ def main(cfg: DictConfig) -> None:
                 pred.extend(y.argmax(1).cpu().detach().numpy())
                 losses.append(loss.item())
 
-            val_loss = np.array(losses).mean()
-            val_acc = (np.array(gt)==np.array(pred)).mean()
-            val_losses.append(val_loss)
-            val_acces.append(val_acc)
-            log.info('[Epoch: %d/%d] val_loss: %.4f, val_acc: %.4f' %(epoch+1, cfg.num_epochs, val_loss, val_acc))
+        val_loss = np.array(losses).mean()
+        val_acc = (np.array(gt) == np.array(pred)).mean()
+        val_losses.append(val_loss)
+        val_acces.append(val_acc)
+        log.info('[Epoch: %d/%d] val_loss: %.4f, val_acc: %.4f' %
+                 (epoch+1, cfg.num_epochs, val_loss, val_acc))
 
         # test
         model.eval()
         gt, pred = [], []
-        for data, label in tqdm(test_loader, leave=False):
-            data, label = data.to(cfg.device), label.to(cfg.device)
-            y = model(data)
-            gt.extend(label.cpu().detach().numpy())
-            pred.extend(y.argmax(1).cpu().detach().numpy())
-        test_acc = (np.array(gt)==np.array(pred)).mean()
+        with torch.no_grad():
+            for data, label in tqdm(test_loader, leave=False):
+                data, label = data.to(cfg.device), label.to(cfg.device)
+                y = model(data)
+                gt.extend(label.cpu().detach().numpy())
+                pred.extend(y.argmax(1).cpu().detach().numpy())
+        test_acc = (np.array(gt) == np.array(pred)).mean()
         test_acces.append(test_acc)
+        test_cm = confusion_matrix(y_true=gt, y_pred=pred)
 
-        log.info('[Epoch: %d/%d] test_acc: %.4f' %(epoch+1, cfg.num_epochs, test_acc))
+        log.info('[Epoch: %d/%d] test_acc: %.4f' %
+                 (epoch+1, cfg.num_epochs, test_acc))
         log.info('--------------------------------------------------')
 
-        if cfg.validation>0:
-            if val_loss < best_validation_loss:
-                torch.save(model.state_dict(), result_path + 'best_model.pth')
-                best_validation_loss = val_loss
-                final_acc = test_acc
+        if val_loss < best_validation_loss:
+            torch.save(model.state_dict(), result_path + 'best_model.pth')
+            save_confusion_matrix(cm=train_cm, path=result_path+'train_cm.png',
+                                  title='epoch: %d, acc: %.4f' % (epoch+1, train_acc))
+            save_confusion_matrix(cm=test_cm, path=result_path+'test_cm.png',
+                                  title='epoch: %d, acc: %.4f' % (epoch+1, test_acc))
+
+            best_validation_loss = val_loss
+            final_acc = test_acc
 
         np.save(result_path+'train_acc', train_acces)
         np.save(result_path+'val_acc', val_acces)
@@ -250,7 +263,7 @@ def main(cfg: DictConfig) -> None:
         plt.ylabel('acc')
         plt.savefig(result_path+'acc.png')
         plt.close()
-        
+
         np.save(result_path+'train_loss', train_losses)
         np.save(result_path+'val_loss', val_losses)
         plt.plot(train_losses, label='train_loss')
@@ -260,9 +273,9 @@ def main(cfg: DictConfig) -> None:
         plt.ylabel('loss')
         plt.savefig(result_path+'loss.png')
         plt.close()
-    
+
     log.info(OmegaConf.to_yaml(cfg))
-    log.info('final_acc: %.4f' %(final_acc))
+    log.info('final_acc: %.4f' % (final_acc))
     log.info('--------------------------------------------------')
 
 

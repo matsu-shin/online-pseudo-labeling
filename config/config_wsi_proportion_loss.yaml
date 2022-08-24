@@ -11,9 +11,10 @@ num_workers: 2
 device: 'cuda:0'
 num_epochs: 400
 is_pretrained: True
+validation: 0.2
 
 proportion_metric: ce
 mini_batch: 4
-num_sampled_instances: 32
+num_sampled_instances: 16
 
 consistency: none
