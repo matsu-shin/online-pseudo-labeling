@@ -11,7 +11,11 @@ num_workers: 2
 device: 'cuda:0'
 num_epochs: 100
 is_pretrained: True
+validation: 0.2
 pseudo_ratio: 1.0
+
+proportion_metric: ce
+mini_batch: 4
 
 fpl:
   is_online_prediction: True
