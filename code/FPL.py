@@ -1,6 +1,7 @@
 # Follow-the-Perturbed-Leader (FPL)
 import random
 import numpy as np
+import torch
 from tqdm import tqdm
 import torch.nn.functional as F
 from mip import *
@@ -66,11 +67,12 @@ class FPL:
         model.eval()
         confidence_list = []
 
-        for data, label in tqdm(loader, leave=False):
-            data, label = data.to(device), label.to(device)
-            y = model(data)
-            confidence = F.softmax(y, dim=1)
-            confidence_list.extend(confidence.cpu().detach().numpy())
+        with torch.no_grad():
+            for data, label in tqdm(loader, leave=False):
+                data, label = data.to(device), label.to(device)
+                y = model(data)
+                confidence = F.softmax(y, dim=1)
+                confidence_list.extend(confidence.cpu().detach().numpy())
 
         confidence = np.array(confidence_list)
         confidence = confidence.reshape(

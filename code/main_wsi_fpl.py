@@ -270,13 +270,14 @@ def main(cfg: DictConfig) -> None:
         model.eval()
         test_losses = []
         test_gt, test_pred = [], []
-        for data, label in tqdm(test_loader, leave=False):
-            data, label = data.to(cfg.device), label.to(cfg.device)
-            y = model(data)
-            loss = loss_function(y, label)
-            test_losses.append(loss.item())
-            test_gt.extend(label.cpu().detach().numpy())
-            test_pred.extend(y.argmax(1).cpu().detach().numpy())
+        with torch.no_grad():
+            for data, label in tqdm(test_loader, leave=False):
+                data, label = data.to(cfg.device), label.to(cfg.device)
+                y = model(data)
+                loss = loss_function(y, label)
+                test_losses.append(loss.item())
+                test_gt.extend(label.cpu().detach().numpy())
+                test_pred.extend(y.argmax(1).cpu().detach().numpy())
         test_gt, test_pred = np.array(test_gt), np.array(test_pred)
         test_loss = np.array(test_losses).mean()
         test_acc = np.array(test_gt == test_pred).mean()
