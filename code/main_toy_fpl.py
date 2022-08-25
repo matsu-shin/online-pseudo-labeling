@@ -86,6 +86,7 @@ def main(cfg: DictConfig) -> None:
     # result_path += 'p_ratio_%s' % (cfg.pseudo_ratio)
     result_path += '_%s' % (cfg.fpl.loss_f)
     result_path += '_eta_%s' % (cfg.fpl.eta)
+    result_path += '_lr_%s' % (cfg.lr)
     result_path += '/'
     make_folder(result_path)
 
@@ -318,7 +319,9 @@ def main(cfg: DictConfig) -> None:
             best_validation_loss = val_loss
             final_acc = test_acc
 
-        # save
+        # if (epoch+1)%10==0:
+        torch.save(model.state_dict(), result_path +
+                   'model_%d.pth' % (epoch+1))
 
         np.save(result_path+'train_acc', train_acces)
         np.save(result_path+'val_acc', val_acces)

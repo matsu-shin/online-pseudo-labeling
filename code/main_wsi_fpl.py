@@ -21,6 +21,7 @@ from sklearn.metrics import confusion_matrix
 
 from FPL_wsi import FPL
 from utils import Dataset, cal_OP_PC_mIoU, fix_seed, make_folder, save_confusion_matrix
+from losses import ProportionLoss
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +65,30 @@ class DatasetTrain(torch.utils.data.Dataset):
         return data, label
 
 
+class DatasetBagSampling(torch.utils.data.Dataset):
+    def __init__(self, bags, label_proportions):
+        self.bags = bags
+        self.label_proportions = label_proportions
+        self.transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5071, 0.4865, 0.4409), (0.2673, 0.2564, 0.2762))])
+        self.len = len(self.bags)
+
+    def __len__(self):
+        return self.len
+
+    def __getitem__(self, idx):
+        (b, w, h, c) = self.bags[idx].shape
+        bag = torch.zeros((b, c, w, h))
+        for i in range(b):
+            bag[i] = self.transform(self.bags[idx][i])
+
+        label_proportion = self.label_proportions[idx]
+        label_proportion = torch.tensor(label_proportion).float()
+
+        return bag, label_proportion
+
+
 def debug_labeled(model, dataset_path, cfg):
     train_data = np.load(dataset_path+'train_data.npy')
     train_label = np.load(dataset_path+'train_label.npy')
@@ -73,15 +98,16 @@ def debug_labeled(model, dataset_path, cfg):
         shuffle=False,  num_workers=cfg.num_workers)
 
     model.eval()
-    train_gt, train_pred = [], []
-    for data, label in tqdm(train_loader, leave=False):
-        data, label = data.to(cfg.device), label.to(cfg.device)
-        y = model(data)
-        train_gt.extend(label.cpu().detach().numpy())
-        train_pred.extend(y.argmax(1).cpu().detach().numpy())
-    train_gt, train_pred = np.array(train_gt), np.array(train_pred)
-    train_acc = np.array(train_gt == train_pred).mean()
-    return train_acc
+    with torch.no_grad():
+        gt, pred = [], []
+        for data, label in tqdm(train_loader, leave=False):
+            data, label = data.to(cfg.device), label.to(cfg.device)
+            y = model(data)
+            gt.extend(label.cpu().detach().numpy())
+            pred.extend(y.argmax(1).cpu().detach().numpy())
+        gt, pred = np.array(gt), np.array(pred)
+
+    return gt, pred
 
 
 @ hydra.main(config_path='../config', config_name='config_wsi_fpl')
@@ -97,7 +123,7 @@ def main(cfg: DictConfig) -> None:
         result_path += 'not_op_'
     result_path += '%s' % (cfg.fpl.loss_f)
     result_path += '_eta_%s' % str(cfg.fpl.eta)
-    result_path += '_pseudo_ratio_%s' % str(cfg.pseudo_ratio)
+    result_path += '_lr_%s' % str(cfg.lr)
     result_path += '/'
     make_folder(result_path)
 
@@ -117,12 +143,19 @@ def main(cfg: DictConfig) -> None:
 
     # with open(dataset_path+"image_name_dict.pkl", "rb") as tf:
     #     image_name_dict = pickle.load(tf)
-    with open(dataset_path+"proportion_dict_10.pkl", "rb") as tf:
+    with open(dataset_path+"proportion_dict.pkl", "rb") as tf:
         proportion_dict = pickle.load(tf)
-    with open(dataset_path+"train_bag_data_10.pkl", "rb") as tf:
+    with open(dataset_path+"train_bag_data.pkl", "rb") as tf:
         train_bag_data = pickle.load(tf)
 
     unlabeled_idx = list(proportion_dict.keys())
+
+    n_val = int(len(unlabeled_idx)*cfg.validation)
+    fix_seed(cfg.seed)
+    np.random.shuffle(unlabeled_idx)
+    val_idx = unlabeled_idx[: n_val]
+    log.info(val_idx)
+    unlabeled_idx = unlabeled_idx[n_val:]
 
     if cfg.dataset.is_debug_labeled:
         with open(dataset_path+"train_data.pkl", "rb") as tf:
@@ -137,6 +170,7 @@ def main(cfg: DictConfig) -> None:
         train_bag_data.update(labeled_train_bag_data)
         proportion_dict.update(labeled_train_proportion)
 
+    # make val_loader
     num_instances_dict = {}
     for idx in unlabeled_idx:
         num_instances_dict[idx] = train_bag_data[idx].shape[0]
@@ -145,20 +179,22 @@ def main(cfg: DictConfig) -> None:
     for idx in unlabeled_idx:
         train_data.extend(train_bag_data[idx])
     train_data = np.array(train_data)
-    # print(train_data.shape)
+
+    val_data, val_proportion = [], []
+    for idx in val_idx:
+        val_data.append(train_bag_data[idx])
+        val_proportion.append(proportion_dict[idx])
+
+    val_dataset = DatasetBagSampling(val_data, val_proportion)
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset, batch_size=1,
+        shuffle=True,  num_workers=cfg.num_workers)
 
     # to reduce cpu memory consumption
     del train_bag_data
     gc.collect()
     del labeled_train_bag_data
     gc.collect()
-
-    train_dataset_for_fpl = Dataset_theta(train_data)
-    train_loader_for_fpl = torch.utils.data.DataLoader(
-        train_dataset_for_fpl, batch_size=cfg.batch_size,
-        shuffle=False,  num_workers=cfg.num_workers)
-    # data = next(iter(train_loader_for_fpl))
-    # print(data.size())
 
     # FPL
     fpl = FPL(num_instances_dict=num_instances_dict,
@@ -168,6 +204,21 @@ def main(cfg: DictConfig) -> None:
               loss_f=cfg.fpl.loss_f,
               pseudo_ratio=cfg.pseudo_ratio,
               is_online_prediction=cfg.fpl.is_online_prediction)
+
+    train_dataset_for_fpl = Dataset_theta(train_data)
+    train_loader_for_fpl = torch.utils.data.DataLoader(
+        train_dataset_for_fpl, batch_size=cfg.batch_size,
+        shuffle=False,  num_workers=cfg.num_workers)
+    # data = next(iter(train_loader_for_fpl))
+    # print(data.size())
+
+    # make test_loader
+    test_data = np.load(dataset_path+'test_data.npy')
+    test_label = np.load(dataset_path+'test_label.npy')
+    test_dataset = Dataset(test_data, test_label)
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset, batch_size=cfg.batch_size,
+        shuffle=False,  num_workers=cfg.num_workers)
 
     # define model, criterion and optimizer
     fix_seed(cfg.seed)
@@ -183,23 +234,21 @@ def main(cfg: DictConfig) -> None:
     weight = 1 / torch.tensor(list(fpl.k_dict.values())).float().sum(dim=0)
     weight = weight.to(cfg.device)
     loss_function = nn.CrossEntropyLoss(weight=weight)
+    proportion_loss = ProportionLoss(metric=cfg.proportion_metric)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
-    # make test_loader
-    test_data = np.load(dataset_path+'test_data.npy')
-    test_label = np.load(dataset_path+'test_label.npy')
-    test_dataset = Dataset(test_data, test_label)
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=cfg.batch_size,
-        shuffle=False,  num_workers=cfg.num_workers)
-
     fix_seed(cfg.seed)
-    train_p_acces, test_acces, flip_p_label_ratioes = [], [], []
-    p_label_acces, train_acces = [], []
+    train_OPs, train_PCs, train_mIoUs = [], [], []
+    train_pseudo_OPs, train_pseudo_PCs, train_pseudo_mIoUs = [], [], []
+    test_OPs, test_PCs, test_mIoUs = [], [], []
+    pseudo_label_acces = []
+    flip_p_label_ratioes = []
+    train_losses, val_losses = [], []
+    best_validation_loss = np.inf
     for epoch in range(cfg.num_epochs):
+        # FPL
         s_time = time.time()
 
-        # FPL
         fpl.update_theta(model, train_loader_for_fpl,
                          num_instances_dict, cfg.device)
         fpl.update_d(num_instances_dict)
@@ -210,8 +259,8 @@ def main(cfg: DictConfig) -> None:
                 acc_list = fpl.d_dict[idx] == labeled_train_bag_label[idx]
                 acc_list = acc_list[fpl.d_dict[idx] != -1]
                 p_label_acc.extend(acc_list)
-            p_label_acc = np.array(p_label_acc).mean()
-            p_label_acces.append(p_label_acc)
+            pseudo_label_acc = np.array(p_label_acc).mean()
+            pseudo_label_acces.append(pseudo_label_acc)
 
         # flatten pseudo label
         p_label = []
@@ -242,89 +291,171 @@ def main(cfg: DictConfig) -> None:
         # print(data.size(), p_label.size())
 
         model.train()
-        train_losses = []
-        train_gt, train_pred = [], []
+        losses = []
+        gt, pred = [], []
         for data, p_label in tqdm(train_loader, leave=False):
             data, p_label = data.to(cfg.device), p_label.to(cfg.device)
             y = model(data)
             loss = loss_function(y, p_label)
+
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
-            train_losses.append(loss.item())
-            train_gt.extend(p_label.cpu().detach().numpy())
-            train_pred.extend(y.argmax(1).cpu().detach().numpy())
-        train_gt, train_pred = np.array(train_gt), np.array(train_pred)
-        train_loss = np.array(train_losses).mean()
-        train_p_acc = np.array(train_gt == train_pred).mean()
-        train_p_acces.append(train_p_acc)
+
+            losses.append(loss.item())
+            gt.extend(p_label.cpu().detach().numpy())
+            pred.extend(y.argmax(1).cpu().detach().numpy())
+
+        train_loss = np.array(losses).mean()
+        gt, pred = np.array(gt), np.array(pred)
+
+        train_pseudo_cm = confusion_matrix(y_true=gt, y_pred=pred)
+        train_pseudo_OP, train_pseudo_PC, train_pseudo_mIoU = cal_OP_PC_mIoU(
+            train_pseudo_cm)
+        train_pseudo_OPs.append(train_pseudo_OP)
+        train_pseudo_PCs.append(train_pseudo_PC)
+        train_pseudo_mIoUs.append(train_pseudo_mIoU)
+
+        if cfg.dataset.is_debug_labeled:
+            gt, pred = debug_labeled(
+                model=model, dataset_path=dataset_path, cfg=cfg)
+            train_cm = confusion_matrix(y_true=gt, y_pred=pred)
+            train_OP, train_PC, train_mIoU = cal_OP_PC_mIoU(train_cm)
+            train_OPs.append(train_OP)
+            train_PCs.append(train_PC)
+            train_mIoUs.append(train_mIoU)
+
+        e_time = time.time()
+        log.info('[Epoch: %d/%d (%ds)] train_loss: %.4f, p_OP: %.4f, p_PC: %.4f, p_mIoU: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f, pseudo_label_acc: %.4f, flip:  %.4f' %
+                 (epoch+1, cfg.num_epochs, e_time-s_time, train_loss,
+                  train_pseudo_OP, train_pseudo_PC, train_pseudo_mIoU,
+                  train_OP, train_PC, train_mIoU,
+                  pseudo_label_acc, flip_p_label_ratio))
+
+        # validation
+        s_time = time.time()
+        model.eval()
+        losses = []
+        with torch.no_grad():
+            for data, proportion in tqdm(val_loader, leave=False):
+                data, proportion = data[0], proportion[0]
+
+                confidence = []
+                if (data.size(0) % cfg.batch_size) == 0:
+                    J = int((data.size(0)//cfg.batch_size))
+                else:
+                    J = int((data.size(0)//cfg.batch_size)+1)
+
+                for j in range(J):
+                    if j+1 != J:
+                        data_j = data[j*cfg.batch_size: (j+1)*cfg.batch_size]
+                    else:
+                        data_j = data[j*cfg.batch_size:]
+
+                    data_j = data_j.to(cfg.device)
+                    y = model(data_j)
+                    confidence.extend(
+                        F.softmax(y, dim=1).cpu().detach().numpy())
+
+                pred = torch.tensor(confidence).mean(dim=0)
+                prop_loss = proportion_loss(pred, proportion)
+                losses.append(prop_loss.item())
+
+        val_loss = np.array(losses).mean()
+        val_losses.append(val_loss)
+        e_time = time.time()
+        log.info('[Epoch: %d/%d (%ds)] val_loss: %.4f' %
+                 (epoch+1, cfg.num_epochs, e_time-s_time, val_loss))
 
         # test
-        if cfg.dataset.is_debug_labeled:
-            train_acc = debug_labeled(
-                model=model, dataset_path=dataset_path, cfg=cfg)
-            train_acces.append(train_acc)
-            log.info('pseudo_label_acc: %.4f, train_acc: %.4f' %
-                     (p_label_acc, train_acc))
-
+        s_time = time.time()
         model.eval()
-        test_losses = []
-        test_gt, test_pred = [], []
+        losses = []
+        gt, pred = [], []
         with torch.no_grad():
             for data, label in tqdm(test_loader, leave=False):
                 data, label = data.to(cfg.device), label.to(cfg.device)
                 y = model(data)
                 loss = loss_function(y, label)
-                test_losses.append(loss.item())
-                test_gt.extend(label.cpu().detach().numpy())
-                test_pred.extend(y.argmax(1).cpu().detach().numpy())
-        test_gt, test_pred = np.array(test_gt), np.array(test_pred)
-        test_loss = np.array(test_losses).mean()
-        test_acc = np.array(test_gt == test_pred).mean()
-        test_acces.append(test_acc)
+                losses.append(loss.item())
+                gt.extend(label.cpu().detach().numpy())
+                pred.extend(y.argmax(1).cpu().detach().numpy())
+
+        test_loss = np.array(losses).mean()
+        gt, pred = np.array(gt), np.array(pred)
+
+        test_cm = confusion_matrix(y_true=gt, y_pred=pred)
+        test_OP, test_PC, test_mIoU = cal_OP_PC_mIoU(test_cm)
+        test_OPs.append(test_OP)
+        test_PCs.append(test_PC)
+        test_mIoUs.append(test_mIoU)
 
         e_time = time.time()
 
-        train_cm = confusion_matrix(y_true=train_gt, y_pred=train_pred)
-        train_OP, train_PC, train_mIoU = cal_OP_PC_mIoU(train_cm)
-        save_confusion_matrix(cm=train_cm, path=result_path+'train_cm.png',
-                              title='acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (train_acc, train_OP, train_PC, train_mIoU))
-        test_cm = confusion_matrix(y_true=test_gt, y_pred=test_pred)
-        test_OP, test_PC, test_mIoU = cal_OP_PC_mIoU(test_cm)
-        save_confusion_matrix(cm=test_cm, path=result_path+'test_cm.png',
-                              title='acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (test_acc, test_OP, test_PC, test_mIoU))
-
-        log.info('[Epoch: %d/%d (%ds)] train loss: %.4f, acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f, test loss: %.4f, acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' %
+        log.info('[Epoch: %d/%d (%ds)] test loss: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' %
                  (epoch+1, cfg.num_epochs, e_time-s_time,
-                  train_loss, train_acc, train_OP, train_PC, train_mIoU,
-                  test_loss, test_acc, test_OP, test_PC, test_mIoU))
+                  test_loss, test_OP, test_PC, test_mIoU))
+        log.info(
+            '-----------------------------------------------------------------------')
 
-        np.save(result_path+'train_acc', train_acces)
-        np.save(result_path+'train_pseudo_acc', train_p_acces)
-        np.save(result_path+'test_acc', test_acces)
+        if val_loss < best_validation_loss:
+            torch.save(model.state_dict(), result_path + 'best_model.pth')
+            save_confusion_matrix(cm=train_cm, path=result_path+'cm_train.png',
+                                  title='epoch: %d, OP: %.4f, PC: %.4f, mIoU: %.4f' % (epoch+1, train_OP, train_PC, train_mIoU))
+            save_confusion_matrix(cm=test_cm, path=result_path+'cm_test.png',
+                                  title='epoch: %d, OP: %.4f, PC: %.4f, mIoU: %.4f' % (epoch+1, test_OP, test_PC, test_mIoU))
+
+            best_validation_loss = val_loss
+            final_OP = test_OP
+            final_PC = test_PC
+            final_mIoU = test_mIoU
+
+        # if (epoch+1) % 10 == 0:
+        torch.save(model.state_dict(), result_path +
+                   'model_%d.pth' % (epoch+1))
+
+        np.save(result_path+'train_OP', train_OPs)
+        np.save(result_path+'train_PC', train_PCs)
+        np.save(result_path+'train_mIoU', train_mIoUs)
+        np.save(result_path+'train_pseudo_OP', train_pseudo_OPs)
+        np.save(result_path+'train_pseudo_PC', train_pseudo_PCs)
+        np.save(result_path+'train_pseudo_mIoU', train_pseudo_mIoUs)
+        np.save(result_path+'test_OP', test_OPs)
+        np.save(result_path+'test_PC', test_PCs)
+        np.save(result_path+'test_mIoU', test_mIoUs)
+
         np.save(result_path+'flip_pseudo_label_ratio', flip_p_label_ratioes)
-        np.save(result_path+'pseudo_label_acc', p_label_acces)
+        np.save(result_path+'pseudo_label_acc', pseudo_label_acces)
 
-        plt.plot(train_acces, label='train_acc')
-        plt.plot(train_p_acces, label='train_pseudo_acc')
-        plt.plot(test_acces, label='test_acc')
+        plt.plot(train_OPs, label='train_OP')
+        plt.plot(train_PCs, label='train_PC')
+        plt.plot(train_mIoUs, label='train_mIoU')
+        plt.plot(test_OPs, label='test_OP')
+        plt.plot(test_PCs, label='test_PC')
+        plt.plot(test_mIoUs, label='test_mIoU')
         plt.plot(flip_p_label_ratioes, label='flip_pseudo_label_ratio')
-        plt.plot(p_label_acces, label='pseudo_label_acc')
+        plt.plot(pseudo_label_acces, label='pseudo_label_acc')
         plt.legend()
         plt.ylim(0, 1)
         plt.xlabel('epoch')
         plt.ylabel('acc')
-        plt.savefig(result_path+'acc.png')
+        plt.savefig(result_path+'curve_acc.png')
         plt.close()
 
-        # save
-        torch.save(model.state_dict(), result_path +
-                   'model_'+str(epoch+1)+'.pth')
-        if (epoch+1) % 10 == 0:
-            save_confusion_matrix(cm=train_cm, path=result_path+'train_cm_'+str(epoch+1)+'.png',
-                                  title='acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (train_acc, train_OP, train_PC, train_mIoU))
-            save_confusion_matrix(cm=test_cm, path=result_path+'test_cm_'+str(epoch+1)+'.png',
-                                  title='acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (test_acc, test_OP, test_PC, test_mIoU))
+        np.save(result_path+'train_loss', train_losses)
+        np.save(result_path+'val_loss', val_losses)
+        plt.plot(train_losses, label='train_loss')
+        plt.plot(val_losses, label='val_loss')
+        plt.legend()
+        plt.xlabel('epoch')
+        plt.ylabel('loss')
+        plt.savefig(result_path+'curve_loss.png')
+        plt.close()
+
+    log.info(OmegaConf.to_yaml(cfg))
+    log.info('OP: %.4f, PC: %.4f, mIoU: %.4f' %
+             (final_OP, final_PC, final_mIoU))
+    log.info('--------------------------------------------------')
 
 
 if __name__ == '__main__':

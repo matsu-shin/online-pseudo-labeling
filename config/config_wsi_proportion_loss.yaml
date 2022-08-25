@@ -9,7 +9,7 @@ lr: 3e-4
 batch_size: 64
 num_workers: 2
 device: 'cuda:0'
-num_epochs: 400
+num_epochs: 100
 is_pretrained: True
 validation: 0.2
 

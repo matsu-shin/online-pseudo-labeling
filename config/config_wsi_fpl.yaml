@@ -6,12 +6,15 @@ result_path: /result/
 model: resnet50
 seed: 0
 lr: 0.001
-batch_size: 64
+batch_size: 128
 num_workers: 2
 device: 'cuda:0'
 num_epochs: 100
 is_pretrained: True
+validation: 0.2
 pseudo_ratio: 1.0
+
+proportion_metric: ce
 
 fpl:
   is_online_prediction: True
