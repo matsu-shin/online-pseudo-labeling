@@ -41,7 +41,7 @@ class FPL:
                 int_n[i] += 1
             self.original_k_dict[idx] = int_n
 
-        random.seed(0)
+        # random.seed(0)
         self.d_dict = {}
         for idx, num_instances in num_instances_dict.items():
             d_n = []

@@ -10,6 +10,7 @@ from torchvision.models import resnet18, resnet50
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
+import time
 
 import torchvision.transforms as transforms
 from utils import Dataset, fix_seed, get_rampup_weight, make_folder, save_confusion_matrix
@@ -60,12 +61,12 @@ def main(cfg: DictConfig) -> None:
     result_path = cwd + cfg.result_path
     result_path += 'toy_proportion_loss/'
     make_folder(result_path)
-    if cfg.consistency != 'none':
-        result_path += cfg.consistency
-    result_path += '%s' % str(cfg.dataset.name)
-    result_path += '_samp_%s' % str(cfg.num_sampled_instances)
-    result_path += '_mini_batch_%s' % str(cfg.mini_batch)
-    result_path += '_lr_%s' % str(cfg.lr)
+    result_path += cfg.consistency + '_'
+    result_path += '%s_' % str(cfg.dataset.name)
+    result_path += 'samp_%s_' % str(cfg.num_sampled_instances)
+    result_path += 'mini_batch_%s_' % str(cfg.mini_batch)
+    result_path += 'lr_%s_' % str(cfg.lr)
+    result_path += 'seed_%s_' % str(cfg.seed)
     result_path += '/'
     make_folder(result_path)
 
@@ -151,6 +152,7 @@ def main(cfg: DictConfig) -> None:
     best_validation_loss = np.inf
     final_acc = 0
     for epoch in range(cfg.num_epochs):
+        s_time = time.time()
         # train
         model.train()
         losses = []
@@ -237,8 +239,9 @@ def main(cfg: DictConfig) -> None:
         test_acces.append(test_acc)
         test_cm = confusion_matrix(y_true=gt, y_pred=pred)
 
-        log.info('[Epoch: %d/%d] test_acc: %.4f' %
-                 (epoch+1, cfg.num_epochs, test_acc))
+        e_time = time.time()
+        log.info('[Epoch: %d/%d (%ds)] test_acc: %.4f' %
+                 (epoch+1, cfg.num_epochs, e_time-s_time, test_acc))
         log.info('--------------------------------------------------')
 
         if val_loss < best_validation_loss:

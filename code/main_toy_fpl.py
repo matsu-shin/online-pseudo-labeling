@@ -79,14 +79,15 @@ def main(cfg: DictConfig) -> None:
     result_path = cwd + cfg.result_path
     result_path += 'toy_fpl/'
     make_folder(result_path)
-    result_path += '%s' % (cfg.dataset.name)
+    result_path += '%s' % (cfg.dataset.name) +'_'
     if cfg.fpl.is_online_prediction == False:
-        result_path += '_not_op_'
+        result_path += 'not_op_'
 
     # result_path += 'p_ratio_%s' % (cfg.pseudo_ratio)
-    result_path += '_%s' % (cfg.fpl.loss_f)
-    result_path += '_eta_%s' % (cfg.fpl.eta)
-    result_path += '_lr_%s' % (cfg.lr)
+    result_path += '%s_' % (cfg.fpl.loss_f)
+    result_path += 'eta_%s_' % (cfg.fpl.eta)
+    result_path += 'lr_%s_' % (cfg.lr)
+    result_path += 'seed_%s_' % (cfg.seed)
     result_path += '/'
     make_folder(result_path)
 

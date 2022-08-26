@@ -63,11 +63,13 @@ def main(cfg: DictConfig) -> None:
     result_path = cwd + cfg.result_path
     result_path += 'wsi_proportion_loss/'
     make_folder(result_path)
-    if cfg.consistency != 'none':
-        result_path += cfg.consistency
-    result_path += '_samp_%s' % str(cfg.num_sampled_instances)
-    result_path += '_mini_batch_%s' % str(cfg.mini_batch)
-    result_path += '_lr_%s' % str(cfg.lr)
+    if cfg.dataset.is_debug_labeled==False:
+        result_path += 'all_test_'
+    result_path += cfg.consistency
+    result_path += 'samp_%s_' % str(cfg.num_sampled_instances)
+    result_path += 'mini_batch_%s_' % str(cfg.mini_batch)
+    result_path += 'lr_%s_' % str(cfg.lr)
+    result_path += 'seed_%s_' % str(cfg.seed)
     result_path += '/'
     make_folder(result_path)
 
@@ -95,7 +97,7 @@ def main(cfg: DictConfig) -> None:
     unlabeled_idx = list(proportion_dict.keys())
 
     n_val = int(len(unlabeled_idx)*cfg.validation)
-    fix_seed(cfg.seed)
+    fix_seed(0)
     np.random.shuffle(unlabeled_idx)
     val_idx = unlabeled_idx[: n_val]
     log.info(val_idx)
@@ -168,21 +170,25 @@ def main(cfg: DictConfig) -> None:
         shuffle=True,  num_workers=cfg.num_workers)
 
     # make train_acc_loader, test_loader
-    labeled_train_data, labeled_train_label = [], []
-    for idx in labeled_idx:
-        labeled_train_data.extend(labeled_train_bag_data[idx])
-        labeled_train_label.extend(labeled_train_bag_label[idx])
-    labeled_train_data = np.array(labeled_train_data)
-    labeled_train_label = np.array(labeled_train_label)
-    train_acc_dataset = Dataset(labeled_train_data, labeled_train_label)
-    train_acc_loader = torch.utils.data.DataLoader(
-        train_acc_dataset, batch_size=cfg.batch_size,
-        shuffle=False,  num_workers=cfg.num_workers)
-    del labeled_train_bag_data
-    gc.collect()
+    if cfg.dataset.is_debug_labeled:
+        labeled_train_data, labeled_train_label = [], []
+        for idx in labeled_idx:
+            labeled_train_data.extend(labeled_train_bag_data[idx])
+            labeled_train_label.extend(labeled_train_bag_label[idx])
+        labeled_train_data = np.array(labeled_train_data)
+        labeled_train_label = np.array(labeled_train_label)
+        train_acc_dataset = Dataset(labeled_train_data, labeled_train_label)
+        train_acc_loader = torch.utils.data.DataLoader(
+            train_acc_dataset, batch_size=cfg.batch_size,
+            shuffle=False,  num_workers=cfg.num_workers)
+        del labeled_train_bag_data
+        gc.collect()
 
-    test_data = np.load(dataset_path+'test_data.npy')
-    test_label = np.load(dataset_path+'test_label.npy')
+    test_data = np.load(dataset_path+'test_data_all.npy')
+    test_label = np.load(dataset_path+'test_label_all.npy')
+    if cfg.dataset.is_debug_labeled:        
+        test_data = np.load(dataset_path+'test_data.npy')
+        test_label = np.load(dataset_path+'test_label.npy')
     test_dataset = Dataset(test_data, test_label)
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=cfg.batch_size,
@@ -249,24 +255,25 @@ def main(cfg: DictConfig) -> None:
         train_losses.append(train_loss)
 
         # cal train acc
-        model.eval()
-        gt, pred = [], []
-        with torch.no_grad():
-            for data, label in tqdm(train_acc_loader, leave=False):
-                data, label = data.to(cfg.device), label.to(cfg.device)
-                y = model(data)
-                gt.extend(label.cpu().detach().numpy())
-                pred.extend(y.argmax(1).cpu().detach().numpy())
-        train_acc = (np.array(gt) == np.array(pred)).mean()
+        if cfg.dataset.is_debug_labeled:
+            model.eval()
+            gt, pred = [], []
+            with torch.no_grad():
+                for data, label in tqdm(train_acc_loader, leave=False):
+                    data, label = data.to(cfg.device), label.to(cfg.device)
+                    y = model(data)
+                    gt.extend(label.cpu().detach().numpy())
+                    pred.extend(y.argmax(1).cpu().detach().numpy())
+            train_acc = (np.array(gt) == np.array(pred)).mean()
 
-        train_cm = confusion_matrix(y_true=gt, y_pred=pred)
-        train_OP, train_PC, train_mIoU = cal_OP_PC_mIoU(train_cm)
-        train_OPs.append(train_OP)
-        train_PCs.append(train_PC)
-        train_mIoUs.append(train_mIoU)
-        log.info('[Epoch: %d/%d] train_loss: %.4f, train acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' %
-                 (epoch+1, cfg.num_epochs,
-                  train_loss, train_acc, train_OP, train_PC, train_mIoU))
+            train_cm = confusion_matrix(y_true=gt, y_pred=pred)
+            train_OP, train_PC, train_mIoU = cal_OP_PC_mIoU(train_cm)
+            train_OPs.append(train_OP)
+            train_PCs.append(train_PC)
+            train_mIoUs.append(train_mIoU)
+            log.info('[Epoch: %d/%d] train_loss: %.4f, train acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' %
+                     (epoch+1, cfg.num_epochs,
+                      train_loss, train_acc, train_OP, train_PC, train_mIoU))
 
         # validation
         model.eval()
@@ -332,9 +339,9 @@ def main(cfg: DictConfig) -> None:
 
         if val_loss < best_validation_loss:
             torch.save(model.state_dict(), result_path + 'best_model.pth')
-
-            save_confusion_matrix(cm=train_cm, path=result_path+'cm_train.png',
-                                  title='epoch: %d, acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (epoch+1, train_acc, train_OP, train_PC, train_mIoU))
+            if cfg.dataset.is_debug_labeled:
+                save_confusion_matrix(cm=train_cm, path=result_path+'cm_train.png',
+                                      title='epoch: %d, acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (epoch+1, train_acc, train_OP, train_PC, train_mIoU))
             save_confusion_matrix(cm=test_cm, path=result_path+'cm_test.png',
                                   title='epoch: %d, acc: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f' % (epoch+1, test_acc, test_OP, test_PC, test_mIoU))
 

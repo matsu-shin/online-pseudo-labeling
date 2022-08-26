@@ -119,11 +119,14 @@ def main(cfg: DictConfig) -> None:
     result_path = cwd + cfg.result_path
     result_path += 'wsi_fpl/'
     make_folder(result_path)
+    if cfg.dataset.is_debug_labeled==False:
+        result_path += 'all_test_'
     if cfg.fpl.is_online_prediction == False:
         result_path += 'not_op_'
-    result_path += '%s' % (cfg.fpl.loss_f)
-    result_path += '_eta_%s' % str(cfg.fpl.eta)
-    result_path += '_lr_%s' % str(cfg.lr)
+    result_path += '%s_' % (cfg.fpl.loss_f)
+    result_path += 'eta_%s_' % str(cfg.fpl.eta)
+    result_path += 'lr_%s_' % str(cfg.lr)
+    result_path += 'seed_%s_' % str(cfg.seed)
     result_path += '/'
     make_folder(result_path)
 
@@ -151,7 +154,7 @@ def main(cfg: DictConfig) -> None:
     unlabeled_idx = list(proportion_dict.keys())
 
     n_val = int(len(unlabeled_idx)*cfg.validation)
-    fix_seed(cfg.seed)
+    fix_seed(0)
     np.random.shuffle(unlabeled_idx)
     val_idx = unlabeled_idx[: n_val]
     log.info(val_idx)
@@ -193,8 +196,6 @@ def main(cfg: DictConfig) -> None:
     # to reduce cpu memory consumption
     del train_bag_data
     gc.collect()
-    del labeled_train_bag_data
-    gc.collect()
 
     # FPL
     fpl = FPL(num_instances_dict=num_instances_dict,
@@ -213,8 +214,11 @@ def main(cfg: DictConfig) -> None:
     # print(data.size())
 
     # make test_loader
-    test_data = np.load(dataset_path+'test_data.npy')
-    test_label = np.load(dataset_path+'test_label.npy')
+    test_data = np.load(dataset_path+'test_data_all.npy')
+    test_label = np.load(dataset_path+'test_label_all.npy')
+    if cfg.dataset.is_debug_labeled:        
+        test_data = np.load(dataset_path+'test_data.npy')
+        test_label = np.load(dataset_path+'test_label.npy')
     test_dataset = Dataset(test_data, test_label)
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=cfg.batch_size,
@@ -325,12 +329,14 @@ def main(cfg: DictConfig) -> None:
             train_PCs.append(train_PC)
             train_mIoUs.append(train_mIoU)
 
+            log.info('[Epoch: %d/%d] train OP: %.4f, PC: %.4f, mIoU: %.4f, pseudo_label_acc: %.4f' %
+                 (epoch+1, cfg.num_epochs,  
+                 train_OP, train_PC, train_mIoU, pseudo_label_acc))
+
         e_time = time.time()
-        log.info('[Epoch: %d/%d (%ds)] train_loss: %.4f, p_OP: %.4f, p_PC: %.4f, p_mIoU: %.4f, OP: %.4f, PC: %.4f, mIoU: %.4f, pseudo_label_acc: %.4f, flip:  %.4f' %
+        log.info('[Epoch: %d/%d (%ds)] train_loss: %.4f, p_OP: %.4f, p_PC: %.4f, p_mIoU: %.4f, flip:  %.4f' %
                  (epoch+1, cfg.num_epochs, e_time-s_time, train_loss,
-                  train_pseudo_OP, train_pseudo_PC, train_pseudo_mIoU,
-                  train_OP, train_PC, train_mIoU,
-                  pseudo_label_acc, flip_p_label_ratio))
+                  train_pseudo_OP, train_pseudo_PC, train_pseudo_mIoU, flip_p_label_ratio))
 
         # validation
         s_time = time.time()
@@ -400,8 +406,11 @@ def main(cfg: DictConfig) -> None:
 
         if val_loss < best_validation_loss:
             torch.save(model.state_dict(), result_path + 'best_model.pth')
-            save_confusion_matrix(cm=train_cm, path=result_path+'cm_train.png',
-                                  title='epoch: %d, OP: %.4f, PC: %.4f, mIoU: %.4f' % (epoch+1, train_OP, train_PC, train_mIoU))
+            if cfg.dataset.is_debug_labeled:
+                save_confusion_matrix(cm=train_cm, path=result_path+'cm_train.png',
+                                    title='epoch: %d, OP: %.4f, PC: %.4f, mIoU: %.4f' % (epoch+1, train_OP, train_PC, train_mIoU))
+            save_confusion_matrix(cm=train_pseudo_cm, path=result_path+'cm_train_pseudo.png',
+                                    title='epoch: %d, OP: %.4f, PC: %.4f, mIoU: %.4f' % (epoch+1, train_pseudo_OP, train_pseudo_PC, train_pseudo_mIoU))
             save_confusion_matrix(cm=test_cm, path=result_path+'cm_test.png',
                                   title='epoch: %d, OP: %.4f, PC: %.4f, mIoU: %.4f' % (epoch+1, test_OP, test_PC, test_mIoU))
 

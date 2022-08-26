@@ -172,8 +172,24 @@ test_idx = idx[20:]
 print(train_idx)
 print(test_idx)
 
+# test_data, test_label = [], []
+# for idx in tqdm(test_idx):
+#     wsi_name = image_dict[idx]
+#     instance_path_list = glob('../dataset/WSI/labeled/'+wsi_name+'/_/*')
+#     for path in instance_path_list:
+#         data = Image.open(path)
+#         data = np.asarray(data.convert('RGB'))
+#         label = int(path[-5: -4])
+#         test_data.append(data)
+#         test_label.append(label)
+# data = np.array(test_data)
+# label = np.array(test_label)
+# print(data.shape, label.shape)
+# np.save('../dataset/WSI/test_data.npy', data)
+# np.save('../dataset/WSI/test_label.npy', label)
+
 test_data, test_label = [], []
-for idx in tqdm(test_idx):
+for idx in tqdm(range(42)):
     wsi_name = image_dict[idx]
     instance_path_list = glob('../dataset/WSI/labeled/'+wsi_name+'/_/*')
     for path in instance_path_list:
@@ -185,39 +201,55 @@ for idx in tqdm(test_idx):
 data = np.array(test_data)
 label = np.array(test_label)
 print(data.shape, label.shape)
-np.save('../dataset/WSI/test_data.npy', data)
-np.save('../dataset/WSI/test_label.npy', label)
+np.save('../dataset/WSI/test_data_all.npy', data)
+np.save('../dataset/WSI/test_label_all.npy', label)
 
-train_data, train_label = {}, {}
-train_proportion = {}
-for idx in tqdm(train_idx):
-    bag_data, bag_label = [], []
-    wsi_name = image_dict[idx]
-    instance_path_list = glob('../dataset/WSI/labeled/'+wsi_name+'/_/*')
-    for path in instance_path_list:
-        data = Image.open(path)
-        data = np.asarray(data.convert('RGB'))
-        label = int(path[-5: -4])
-        bag_data.append(np.array(data))
-        bag_label.append(label)
+# train_data, train_label = [], []
+# for idx in tqdm(train_idx):
+#     wsi_name = image_dict[idx]
+#     instance_path_list = glob('../dataset/WSI/labeled/'+wsi_name+'/_/*')
+#     for path in instance_path_list:
+#         data = Image.open(path)
+#         data = np.asarray(data.convert('RGB'))
+#         label = int(path[-5: -4])
+#         train_data.append(data)
+#         train_label.append(label)
+# data = np.array(train_data)
+# label = np.array(train_label)
+# print(data.shape, label.shape)
+# np.save('../dataset/WSI/train_data.npy', data)
+# np.save('../dataset/WSI/train_label.npy', label)
 
-    bag_data = np.array(bag_data)
-    bag_label = np.array(bag_label)
-    train_data[idx] = bag_data
-    train_label[idx] = bag_label
+# train_data, train_label = {}, {}
+# train_proportion = {}
+# for idx in tqdm(train_idx):
+#     bag_data, bag_label = [], []
+#     wsi_name = image_dict[idx]
+#     instance_path_list = glob('../dataset/WSI/labeled/'+wsi_name+'/_/*')
+#     for path in instance_path_list:
+#         data = Image.open(path)
+#         data = np.asarray(data.convert('RGB'))
+#         label = int(path[-5: -4])
+#         bag_data.append(np.array(data))
+#         bag_label.append(label)
 
-    proportion = np.zeros(5)
-    for i in bag_label:
-        proportion[i] += 1
-    proportion /= proportion.sum()
-    train_proportion[idx] = proportion
+#     bag_data = np.array(bag_data)
+#     bag_label = np.array(bag_label)
+#     train_data[idx] = bag_data
+#     train_label[idx] = bag_label
 
-with open("../dataset/WSI/train_data.pkl", "wb") as tf:
-    pickle.dump(train_data, tf)
-with open("../dataset/WSI/train_label.pkl", "wb") as tf:
-    pickle.dump(train_label, tf)
-with open("../dataset/WSI/train_proportion.pkl", "wb") as tf:
-    pickle.dump(train_proportion, tf)
+#     proportion = np.zeros(5)
+#     for i in bag_label:
+#         proportion[i] += 1
+#     proportion /= proportion.sum()
+#     train_proportion[idx] = proportion
+
+# with open("../dataset/WSI/train_data.pkl", "wb") as tf:
+#     pickle.dump(train_data, tf)
+# with open("../dataset/WSI/train_label.pkl", "wb") as tf:
+#     pickle.dump(train_label, tf)
+# with open("../dataset/WSI/train_proportion.pkl", "wb") as tf:
+#     pickle.dump(train_proportion, tf)
 
 # with open("../dataset/WSI/train_data.pkl", "rb") as tf:
 #     train_data = pickle.load(tf)
@@ -288,3 +320,12 @@ cnt = np.zeros(5)
 for i in test_label:
     cnt[i] += 1
 print(cnt)
+
+test_data = np.load("../dataset/WSI/test_data_all.npy")
+test_label = np.load("../dataset/WSI/test_label_all.npy")
+# print(test_data.shape, test_label.shape)
+cnt = np.zeros(5)
+for i in test_label:
+    cnt[i] += 1
+print(cnt)
+

@@ -42,7 +42,7 @@ class FPL:
                 int_n_c[idx] += 1
             self.original_k[n] = int_n_c
 
-        random.seed(0)
+        # random.seed(0)
         self.d = np.zeros((self.num_bags, self.num_instances), dtype=int)
         for n in range(num_bags):
             d_n = []
